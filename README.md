@@ -311,6 +311,51 @@ const results = await client.v7.search('project deadlines', {
 });
 ```
 
+### Use with Local LLMs (Ollama)
+
+Hypersave works as a memory layer for any LLM, including local open-source models:
+
+```typescript
+import { HypersaveClient } from 'hypersave';
+import ollama from 'ollama';
+
+const hypersave = new HypersaveClient({
+  apiKey: 'your-api-key',
+  baseUrl: 'https://api.hypersave.io'
+});
+
+async function chatWithMemory(userMessage: string) {
+  // Get memory-augmented answer from Hypersave
+  const memoryResponse = await hypersave.ask(userMessage);
+
+  console.log(`Found ${memoryResponse.context?.memoriesUsed} memories`);
+
+  // Enhance with local LLM for richer response
+  const response = await ollama.chat({
+    model: 'gpt-oss:20b', // or llama3.1, mistral, etc.
+    messages: [
+      {
+        role: 'system',
+        content: `User info from memory: "${memoryResponse.answer}". Use this to personalize.`
+      },
+      { role: 'user', content: userMessage }
+    ]
+  });
+
+  return response.message.content;
+}
+
+// Save facts to Hypersave
+await hypersave.save({ content: 'I work as a software engineer at Google', type: 'text' });
+await hypersave.save({ content: 'My dog Max loves to play fetch', type: 'text' });
+
+// Query with memory - LLM now knows your personal context
+const answer = await chatWithMemory('What is my job?');
+// Output: "You work as a software engineer at Google"
+```
+
+**Validated with:** GPT-OSS 20B, Llama 3.1, Qwen 2.5, Gemma 2, and other Ollama-compatible models.
+
 ## License
 
 MIT
