@@ -1,0 +1,46 @@
+# Source files (published as dist/)
+src/
+
+# TypeScript config
+tsconfig.json
+
+# Development files
+*.test.ts
+*.spec.ts
+__tests__/
+coverage/
+.nyc_output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependencies (not needed, installed by user)
+node_modules/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+.travis.yml
+.circleci/
+
+# Misc
+.env
+.env.*
+*.local
