@@ -47,7 +47,6 @@ console.log(results.results);
 - **Query**: Multi-strategy search with reminder support
 - **Profile**: Build and query your user profile from extracted facts
 - **Graph**: Explore your knowledge graph
-- **V7 Enhanced**: Chunk-based search, entity extraction, and more
 
 ## API Reference
 
@@ -176,46 +175,6 @@ const usage = await client.getUsage();
 console.log(`${usage.usage.documentsIndexed} documents indexed`);
 ```
 
-### V7 Enhanced API
-
-Access enhanced features via `client.v7`:
-
-```typescript
-// Chunk-based search with modes
-const results = await client.v7.search('quantum computing', {
-  mode: 'deep',      // 'fast' | 'balanced' | 'deep'
-  limit: 10,
-});
-
-// Ask with source citations
-const answer = await client.v7.ask('What is quantum entanglement?');
-console.log(answer.answer);
-console.log('Sources:', answer.sources);
-
-// Enhanced document ingestion
-const ingested = await client.v7.ingest({
-  content: 'Long document content...',
-  title: 'Research Paper',
-  type: 'text',
-  category: 'Research',
-});
-console.log(`Created ${ingested.chunksCreated} chunks`);
-
-// Get extracted entities
-const entities = await client.v7.getEntities({ type: 'person' });
-for (const entity of entities.entities) {
-  console.log(`${entity.name} (${entity.mentions} mentions)`);
-}
-
-// Query by entity
-const entityInfo = await client.v7.getEntity('Elon Musk');
-console.log(`Found in ${entityInfo.documentCount} documents`);
-
-// Get user facts
-const facts = await client.v7.getFacts();
-console.log(`${facts.count} facts stored`);
-```
-
 ## Error Handling
 
 The SDK provides typed errors for better error handling:
@@ -306,10 +265,9 @@ async function chat(message: string) {
 ### Semantic search with filtering
 
 ```typescript
-const results = await client.v7.search('project deadlines', {
-  mode: 'balanced',
-  sectors: ['episodic', 'procedural'],
+const results = await client.search('project deadlines', {
   limit: 20,
+  includeContext: true,
 });
 ```
 

@@ -60,17 +60,6 @@ export type {
   // Delete
   DeleteResult,
 
-  // V7 Enhanced
-  V7SearchOptions,
-  V7SearchResult,
-  V7AskResult,
-  V7IngestOptions,
-  V7IngestResult,
-  Entity,
-  V7EntitiesResult,
-  V7EntityResult,
-  V7FactsResult,
-
   // Generic
   ApiResponse,
 } from './types.js';

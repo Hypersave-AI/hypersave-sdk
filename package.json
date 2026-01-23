@@ -1,6 +1,6 @@
 {
   "name": "hypersave",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Official TypeScript/JavaScript SDK for the Hypersave API - Your AI-powered memory layer",
   "main": "dist/index.js",
   "module": "dist/index.js",

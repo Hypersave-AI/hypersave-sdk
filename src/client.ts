@@ -21,14 +21,6 @@ import {
   RemindResult,
   UsageResult,
   DeleteResult,
-  V7SearchOptions,
-  V7SearchResult,
-  V7AskResult,
-  V7IngestOptions,
-  V7IngestResult,
-  V7EntitiesResult,
-  V7EntityResult,
-  V7FactsResult,
 } from './types.js';
 
 import {
@@ -40,14 +32,6 @@ import {
   ParseError,
   createErrorFromStatus,
 } from './errors.js';
-
-/** Request method type for V7Client */
-type RequestMethod = <T>(
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
-  path: string,
-  body?: Record<string, any>,
-  options?: { userId?: string }
-) => Promise<T>;
 
 const DEFAULT_BASE_URL = 'https://api.hypersave.io';
 const DEFAULT_TIMEOUT = 30000;
@@ -74,9 +58,6 @@ export class HypersaveClient {
   private readonly timeout: number;
   private readonly defaultUserId?: string;
 
-  /** V7 enhanced API methods */
-  public readonly v7: V7Client;
-
   constructor(config: HypersaveConfig) {
     if (!config.apiKey) {
       throw new AuthenticationError('API key is required');
@@ -86,9 +67,6 @@ export class HypersaveClient {
     this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
     this.timeout = config.timeout || DEFAULT_TIMEOUT;
     this.defaultUserId = config.userId;
-
-    // Initialize V7 client
-    this.v7 = new V7Client(this);
   }
 
   // ============================================================================
@@ -428,160 +406,6 @@ export class HypersaveClient {
 
     const query = params.toString();
     return this.request<UsageResult>('GET', `/v1/usage${query ? `?${query}` : ''}`);
-  }
-}
-
-/**
- * V7 Enhanced API Client
- * Provides access to chunk-based search, entity extraction, and more
- */
-class V7Client {
-  private readonly request: RequestMethod;
-
-  constructor(parent: HypersaveClient) {
-    // Bind the parent's request method with proper typing
-    this.request = (parent as any).request.bind(parent) as RequestMethod;
-  }
-
-  /**
-   * Enhanced chunk-based search
-   *
-   * @example
-   * ```typescript
-   * const results = await client.v7.search('machine learning', { mode: 'deep' });
-   * ```
-   */
-  async search(query: string, options?: Omit<V7SearchOptions, 'query'>): Promise<V7SearchResult> {
-    if (!query) {
-      throw new ValidationError('Query is required');
-    }
-
-    return this.request<V7SearchResult>('POST', '/api/v7/search', {
-      query,
-      mode: options?.mode,
-      sectors: options?.sectors,
-      limit: options?.limit,
-      userId: options?.userId,
-    });
-  }
-
-  /**
-   * Ask a question with source citations
-   *
-   * @example
-   * ```typescript
-   * const result = await client.v7.ask('What is TypeScript?');
-   * console.log(result.answer);
-   * console.log('Sources:', result.sources);
-   * ```
-   */
-  async ask(question: string, options?: { userId?: string }): Promise<V7AskResult> {
-    if (!question) {
-      throw new ValidationError('Question is required');
-    }
-
-    return this.request<V7AskResult>('POST', '/api/v7/ask', {
-      question,
-      userId: options?.userId,
-    });
-  }
-
-  /**
-   * Ingest a document with enhanced processing
-   *
-   * @example
-   * ```typescript
-   * const result = await client.v7.ingest({
-   *   content: 'Long article content...',
-   *   title: 'My Article',
-   *   type: 'text'
-   * });
-   * console.log(`Created ${result.chunksCreated} chunks`);
-   * ```
-   */
-  async ingest(options: V7IngestOptions): Promise<V7IngestResult> {
-    if (!options.content) {
-      throw new ValidationError('Content is required');
-    }
-    if (!options.title) {
-      throw new ValidationError('Title is required');
-    }
-
-    return this.request<V7IngestResult>('POST', '/api/v7/ingest', {
-      content: options.content,
-      title: options.title,
-      type: options.type,
-      category: options.category,
-      sector: options.sector,
-      metadata: options.metadata,
-      userId: options.userId,
-    });
-  }
-
-  /**
-   * Get extracted entities
-   *
-   * @example
-   * ```typescript
-   * const entities = await client.v7.getEntities({ type: 'person' });
-   * for (const entity of entities.entities) {
-   *   console.log(`${entity.name} (${entity.mentions} mentions)`);
-   * }
-   * ```
-   */
-  async getEntities(options?: {
-    type?: string;
-    limit?: number;
-    userId?: string;
-  }): Promise<V7EntitiesResult> {
-    const params = new URLSearchParams();
-    if (options?.type) params.set('type', options.type);
-    if (options?.limit) params.set('limit', String(options.limit));
-    if (options?.userId) params.set('userId', options.userId);
-
-    const query = params.toString();
-    return this.request<V7EntitiesResult>('GET', `/api/v7/entities${query ? `?${query}` : ''}`);
-  }
-
-  /**
-   * Query by entity name
-   *
-   * @example
-   * ```typescript
-   * const result = await client.v7.getEntity('Elon Musk');
-   * console.log(`Found ${result.documentCount} related documents`);
-   * ```
-   */
-  async getEntity(name: string, options?: { userId?: string }): Promise<V7EntityResult> {
-    if (!name) {
-      throw new ValidationError('Entity name is required');
-    }
-
-    const params = new URLSearchParams();
-    if (options?.userId) params.set('userId', options.userId);
-
-    const query = params.toString();
-    return this.request<V7EntityResult>(
-      'GET',
-      `/api/v7/entity/${encodeURIComponent(name)}${query ? `?${query}` : ''}`
-    );
-  }
-
-  /**
-   * Get user facts
-   *
-   * @example
-   * ```typescript
-   * const facts = await client.v7.getFacts();
-   * console.log(`${facts.count} facts stored`);
-   * ```
-   */
-  async getFacts(options?: { userId?: string }): Promise<V7FactsResult> {
-    const params = new URLSearchParams();
-    if (options?.userId) params.set('userId', options.userId);
-
-    const query = params.toString();
-    return this.request<V7FactsResult>('GET', `/api/v7/facts${query ? `?${query}` : ''}`);
   }
 }
 
