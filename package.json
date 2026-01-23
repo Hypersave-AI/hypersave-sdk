@@ -1,6 +1,6 @@
 {
   "name": "hypersave",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Official TypeScript/JavaScript SDK for the Hypersave API - Your AI-powered memory layer",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -46,7 +46,7 @@
     "type": "git",
     "url": "https://github.com/hypersave/hypersave-sdk"
   },
-  "homepage": "https://hypersave.io",
+  "homepage": "https://docs.hypersave.io",
   "bugs": {
     "url": "https://github.com/hypersave/hypersave-sdk/issues"
   },

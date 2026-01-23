@@ -2,6 +2,8 @@
 
 Official TypeScript/JavaScript SDK for the [Hypersave](https://hypersave.io) API - Your AI-powered memory layer.
 
+**[Documentation](https://docs.hypersave.io)** | **[Platform](https://platform.hypersave.io)** | **[API Reference](https://docs.hypersave.io/api-reference)**
+
 ## Installation
 
 ```bash
