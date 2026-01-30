@@ -48,6 +48,17 @@ console.log(results.results);
 - **Profile**: Build and query your user profile from extracted facts
 - **Graph**: Explore your knowledge graph
 
+## Performance
+
+| Operation | Latency |
+|-----------|---------|
+| `save()` | ~50ms (async) |
+| `ask()` - first query | ~1.5s |
+| `ask()` - cached | under 10ms |
+| `search()` | ~500ms |
+
+Responses are automatically cached for 5 minutes for faster repeated queries.
+
 ## API Reference
 
 ### Configuration
