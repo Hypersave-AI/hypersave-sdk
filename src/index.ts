@@ -60,6 +60,32 @@ export type {
   // Delete
   DeleteResult,
 
+  // Facts
+  FactCategory,
+  FactsOptions,
+  FactsResult,
+
+  // Relations
+  RelationType,
+  FactRelation,
+  KnowledgeTriplet,
+  RelationsOptions,
+  RelationsResult,
+
+  // Metrics
+  LatencyStats,
+  MetricsResult,
+
+  // Entities
+  EntityType,
+  Entity,
+  EntitiesOptions,
+  EntitiesResult,
+
+  // Ingest
+  IngestOptions,
+  IngestResult,
+
   // Generic
   ApiResponse,
 } from './types.js';

@@ -332,6 +332,121 @@ export class HypersaveClient {
         const query = params.toString();
         return this.request('GET', `/v1/usage${query ? `?${query}` : ''}`);
     }
+    // ============================================================================
+    // FACTS & RELATIONS METHODS
+    // ============================================================================
+    /**
+     * Get extracted facts for a user
+     *
+     * @example
+     * ```typescript
+     * const facts = await client.getFacts({ category: 'work' });
+     * console.log(`${facts.count} work-related facts`);
+     * for (const fact of facts.facts) {
+     *   console.log(`${fact.key}: ${fact.value}`);
+     * }
+     * ```
+     */
+    async getFacts(options) {
+        const params = new URLSearchParams();
+        if (options?.category)
+            params.set('category', options.category);
+        if (options?.limit)
+            params.set('limit', String(options.limit));
+        if (options?.offset)
+            params.set('offset', String(options.offset));
+        if (options?.userId)
+            params.set('userId', options.userId);
+        const query = params.toString();
+        return this.request('GET', `/v1/facts${query ? `?${query}` : ''}`);
+    }
+    /**
+     * Get fact relations and knowledge triplets
+     *
+     * @example
+     * ```typescript
+     * const relations = await client.getRelations();
+     * console.log(`${relations.counts.factRelations} relations`);
+     * console.log(`${relations.counts.triplets} triplets`);
+     * for (const triplet of relations.knowledgeTriplets) {
+     *   console.log(`${triplet.subject} ${triplet.predicate} ${triplet.object}`);
+     * }
+     * ```
+     */
+    async getRelations(options) {
+        const params = new URLSearchParams();
+        if (options?.limit)
+            params.set('limit', String(options.limit));
+        if (options?.userId)
+            params.set('userId', options.userId);
+        const query = params.toString();
+        return this.request('GET', `/v1/relations${query ? `?${query}` : ''}`);
+    }
+    /**
+     * Get API performance metrics
+     *
+     * @example
+     * ```typescript
+     * const metrics = await client.getMetrics();
+     * console.log(`Ask P95 latency: ${metrics.ask.latency.p95}ms`);
+     * console.log(`Cache hit rate: ${metrics.cache.hitRate}`);
+     * ```
+     */
+    async getMetrics() {
+        return this.request('GET', '/v1/metrics');
+    }
+    /**
+     * Get extracted entities (people, places, organizations, etc.)
+     *
+     * @example
+     * ```typescript
+     * const entities = await client.getEntities();
+     * console.log(`${entities.count} entities found`);
+     * for (const entity of entities.entities) {
+     *   console.log(`${entity.name} (${entity.type}) - ${entity.mentions} mentions`);
+     * }
+     * ```
+     */
+    async getEntities(options) {
+        const params = new URLSearchParams();
+        if (options?.limit)
+            params.set('limit', String(options.limit));
+        if (options?.userId)
+            params.set('userId', options.userId);
+        const query = params.toString();
+        return this.request('GET', `/v1/entities${query ? `?${query}` : ''}`);
+    }
+    /**
+     * Enhanced document ingestion with full processing
+     *
+     * @example
+     * ```typescript
+     * const result = await client.ingest({
+     *   content: 'Meeting notes from Q4 planning...',
+     *   title: 'Q4 Planning Meeting',
+     *   category: 'Work',
+     *   sector: 'episodic'
+     * });
+     * console.log(`Document ${result.documentId}: ${result.facts} facts, ${result.entities} entities`);
+     * ```
+     */
+    async ingest(options) {
+        if (!options.content) {
+            throw new ValidationError('Content is required');
+        }
+        if (!options.title) {
+            throw new ValidationError('Title is required');
+        }
+        return this.request('POST', '/v1/ingest', {
+            content: options.content,
+            title: options.title,
+            type: options.type,
+            category: options.category,
+            sector: options.sector,
+            metadata: options.metadata,
+            userId: options.userId,
+        });
+    }
 }
 export default HypersaveClient;
 //# sourceMappingURL=client.js.map

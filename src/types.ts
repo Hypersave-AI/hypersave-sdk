@@ -389,6 +389,258 @@ export interface DeleteResult {
 }
 
 // ============================================================================
+// FACTS TYPES
+// ============================================================================
+
+export type FactCategory =
+  | 'identity'
+  | 'preference'
+  | 'skill'
+  | 'relationship'
+  | 'location'
+  | 'work'
+  | 'education'
+  | 'health'
+  | 'finance'
+  | 'travel'
+  | 'hobbies'
+  | 'goals'
+  | 'beliefs'
+  | 'habits'
+  | 'memories'
+  | 'opinions'
+  | 'other';
+
+export interface FactsOptions {
+  /** Filter by category */
+  category?: FactCategory;
+  /** Maximum results to return */
+  limit?: number;
+  /** Offset for pagination */
+  offset?: number;
+  /** User ID (overrides config default) */
+  userId?: string;
+}
+
+export interface FactsResult {
+  success: boolean;
+  /** List of facts */
+  facts: Fact[];
+  /** Total count */
+  count: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// RELATIONS TYPES
+// ============================================================================
+
+export interface RelationsOptions {
+  /** Maximum results to return */
+  limit?: number;
+  /** User ID (overrides config default) */
+  userId?: string;
+}
+
+export type RelationType =
+  | 'updates'
+  | 'extends'
+  | 'derives'
+  | 'contradicts'
+  | 'supports'
+  | 'relates_to';
+
+export interface FactRelation {
+  id: string;
+  user_id: string;
+  source_fact_id: string;
+  target_fact_id: string;
+  relation_type: RelationType;
+  confidence: number;
+  created_at: string;
+}
+
+export interface KnowledgeTriplet {
+  id: string;
+  user_id: string;
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence: number;
+  source_doc_id?: string;
+}
+
+export interface RelationsResult {
+  success: boolean;
+  /** Fact relations */
+  factRelations: FactRelation[];
+  /** Knowledge triplets (subject-predicate-object) */
+  knowledgeTriplets: KnowledgeTriplet[];
+  /** Counts */
+  counts: {
+    factRelations: number;
+    triplets: number;
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// METRICS TYPES
+// ============================================================================
+
+export interface LatencyStats {
+  p50: number;
+  p95: number;
+  avg: number;
+  samples: number;
+}
+
+export interface MetricsResult {
+  success: boolean;
+  timestamp: string;
+  /** Ask endpoint metrics */
+  ask: {
+    latency: LatencyStats;
+  };
+  /** Save endpoint metrics */
+  save: {
+    latency: LatencyStats;
+  };
+  /** Cache statistics */
+  cache: {
+    size: number;
+    hitRate: string;
+  };
+  /** Fallback statistics */
+  fallbacks: {
+    total: number;
+    byMode: Record<string, { count: number; percent: string }>;
+    gaps: string[];
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// ENTITIES TYPES
+// ============================================================================
+
+export type EntityType =
+  | 'person'
+  | 'organization'
+  | 'location'
+  | 'event'
+  | 'concept'
+  | 'other';
+
+export interface Entity {
+  id: string;
+  user_id: string;
+  name: string;
+  type: EntityType;
+  mentions?: number;
+  first_seen?: string;
+  last_seen?: string;
+}
+
+export interface EntitiesOptions {
+  /** Maximum results to return */
+  limit?: number;
+  /** User ID (overrides config default) */
+  userId?: string;
+}
+
+export interface EntitiesResult {
+  success: boolean;
+  /** List of entities */
+  entities: Entity[];
+  /** Total count */
+  count: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// INGEST TYPES
+// ============================================================================
+
+export interface IngestOptions {
+  /** The content to ingest */
+  content: string;
+  /** Title for the content */
+  title: string;
+  /** Document type */
+  type?: DocumentType;
+  /** Category for organization */
+  category?: string;
+  /** Memory sector */
+  sector?: SectorType;
+  /** Additional metadata */
+  metadata?: Record<string, unknown>;
+  /** User ID (overrides config default) */
+  userId?: string;
+}
+
+export interface IngestResult {
+  success: boolean;
+  /** Created document ID */
+  documentId: string;
+  /** Document title */
+  title: string;
+  /** Number of facts extracted */
+  facts: number;
+  /** Number of entities extracted */
+  entities: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// SYNAPSES (SELF-LEARNING) TYPES
+// ============================================================================
+
+export interface Synapse {
+  /** Unique synapse ID */
+  id: string;
+  /** Type of learned pattern */
+  pattern_type: 'communication_style' | 'decision_making' | 'work_preference' | 'tool_preference' | 'collaboration_style' | string;
+  /** Human-readable description of the pattern */
+  description: string;
+  /** Confidence score (0-1) */
+  confidence: number;
+  /** Number of observations supporting this pattern */
+  evidence_count: number;
+  /** When this pattern was last observed */
+  last_observed: string;
+}
+
+export interface SynapsesResult {
+  success: boolean;
+  /** List of learned patterns */
+  synapses: Synapse[];
+  /** Total count */
+  count: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface LearnResult {
+  success: boolean;
+  /** Message about the learning process */
+  message: string;
+  /** Number of new synapses created */
+  newSynapses: number;
+  /** Number of existing synapses updated */
+  updatedSynapses: number;
+  /** Total synapses after learning */
+  totalSynapses: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
 // API RESPONSE WRAPPER
 // ============================================================================
 

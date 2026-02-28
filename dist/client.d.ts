@@ -2,7 +2,7 @@
  * Hypersave SDK Client
  * Main client class for interacting with the Hypersave API
  */
-import { HypersaveConfig, SaveOptions, SaveResult, SaveStatus, AskResult, SearchOptions, SearchResult, QueryOptions, QueryResult, GetMemoriesOptions, MemoriesResult, ProfileResult, GraphResult, RemindOptions, RemindResult, UsageResult, DeleteResult } from './types.js';
+import { HypersaveConfig, SaveOptions, SaveResult, SaveStatus, AskResult, SearchOptions, SearchResult, QueryOptions, QueryResult, GetMemoriesOptions, MemoriesResult, ProfileResult, GraphResult, RemindOptions, RemindResult, UsageResult, DeleteResult, FactsOptions, FactsResult, RelationsOptions, RelationsResult, MetricsResult, EntitiesOptions, EntitiesResult, IngestOptions, IngestResult } from './types.js';
 /**
  * Hypersave API Client
  *
@@ -179,6 +179,72 @@ export declare class HypersaveClient {
     getUsage(options?: {
         userId?: string;
     }): Promise<UsageResult>;
+    /**
+     * Get extracted facts for a user
+     *
+     * @example
+     * ```typescript
+     * const facts = await client.getFacts({ category: 'work' });
+     * console.log(`${facts.count} work-related facts`);
+     * for (const fact of facts.facts) {
+     *   console.log(`${fact.key}: ${fact.value}`);
+     * }
+     * ```
+     */
+    getFacts(options?: FactsOptions): Promise<FactsResult>;
+    /**
+     * Get fact relations and knowledge triplets
+     *
+     * @example
+     * ```typescript
+     * const relations = await client.getRelations();
+     * console.log(`${relations.counts.factRelations} relations`);
+     * console.log(`${relations.counts.triplets} triplets`);
+     * for (const triplet of relations.knowledgeTriplets) {
+     *   console.log(`${triplet.subject} ${triplet.predicate} ${triplet.object}`);
+     * }
+     * ```
+     */
+    getRelations(options?: RelationsOptions): Promise<RelationsResult>;
+    /**
+     * Get API performance metrics
+     *
+     * @example
+     * ```typescript
+     * const metrics = await client.getMetrics();
+     * console.log(`Ask P95 latency: ${metrics.ask.latency.p95}ms`);
+     * console.log(`Cache hit rate: ${metrics.cache.hitRate}`);
+     * ```
+     */
+    getMetrics(): Promise<MetricsResult>;
+    /**
+     * Get extracted entities (people, places, organizations, etc.)
+     *
+     * @example
+     * ```typescript
+     * const entities = await client.getEntities();
+     * console.log(`${entities.count} entities found`);
+     * for (const entity of entities.entities) {
+     *   console.log(`${entity.name} (${entity.type}) - ${entity.mentions} mentions`);
+     * }
+     * ```
+     */
+    getEntities(options?: EntitiesOptions): Promise<EntitiesResult>;
+    /**
+     * Enhanced document ingestion with full processing
+     *
+     * @example
+     * ```typescript
+     * const result = await client.ingest({
+     *   content: 'Meeting notes from Q4 planning...',
+     *   title: 'Q4 Planning Meeting',
+     *   category: 'Work',
+     *   sector: 'episodic'
+     * });
+     * console.log(`Document ${result.documentId}: ${result.facts} facts, ${result.entities} entities`);
+     * ```
+     */
+    ingest(options: IngestOptions): Promise<IngestResult>;
 }
 export default HypersaveClient;
 //# sourceMappingURL=client.d.ts.map
