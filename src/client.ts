@@ -574,26 +574,6 @@ export class HypersaveClient {
     });
   }
 
-  /**
-   * Get user facts (structured key-value memory)
-   *
-   * @example
-   * ```typescript
-   * const facts = await client.getFacts({ category: 'work' });
-   * for (const fact of facts.facts) {
-   *   console.log(`${fact.category}.${fact.key} = ${fact.value}`);
-   * }
-   * ```
-   */
-  async getFacts(options?: FactsOptions): Promise<FactsResult> {
-    const params = new URLSearchParams();
-    if (options?.limit) params.set('limit', String(options.limit));
-    if (options?.category) params.set('category', options.category);
-    if (options?.userId) params.set('userId', options.userId);
-
-    const query = params.toString();
-    return this.request<FactsResult>('GET', `/v1/facts${query ? `?${query}` : ''}`);
-  }
 }
 
 export default HypersaveClient;
