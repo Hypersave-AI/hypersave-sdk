@@ -23,7 +23,8 @@
     "build:cjs": "tsc --module commonjs --outDir dist/cjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build",
-    "test": "echo \"No tests yet\" && exit 0",
+    "test": "npx tsx src/client.test.ts",
+    "test:watch": "npx tsx --watch src/client.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
