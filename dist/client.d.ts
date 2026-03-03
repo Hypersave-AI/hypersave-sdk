@@ -2,7 +2,7 @@
  * Hypersave SDK Client
  * Main client class for interacting with the Hypersave API
  */
-import { HypersaveConfig, SaveOptions, SaveResult, SaveStatus, AskResult, SearchOptions, SearchResult, QueryOptions, QueryResult, GetMemoriesOptions, MemoriesResult, ProfileResult, GraphResult, RemindOptions, RemindResult, UsageResult, DeleteResult, FactsOptions, FactsResult, RelationsOptions, RelationsResult, MetricsResult, EntitiesOptions, EntitiesResult, IngestOptions, IngestResult } from './types.js';
+import { HypersaveConfig, SaveOptions, SaveResult, SaveStatus, AskResult, SearchOptions, SearchResult, QueryOptions, QueryResult, GetMemoriesOptions, MemoriesResult, ProfileResult, GraphResult, RemindOptions, RemindResult, UsageResult, DeleteResult, FactsOptions, FactsResult, RelationsOptions, RelationsResult, MetricsResult, EntitiesOptions, EntitiesResult, IngestOptions, IngestResult, SynapsesResult, LearnResult } from './types.js';
 /**
  * Hypersave API Client
  *
@@ -24,11 +24,21 @@ export declare class HypersaveClient {
     private readonly baseUrl;
     private readonly timeout;
     private readonly defaultUserId?;
+    private readonly maxRetries;
+    private readonly retryDelay;
     constructor(config: HypersaveConfig);
     /**
      * Make an HTTP request to the API
      */
     private request;
+    /**
+     * Sleep for a given number of milliseconds
+     */
+    private sleep;
+    /**
+     * Make an HTTP request with retry logic for transient errors
+     */
+    private requestWithRetry;
     /**
      * Save content to your Hypersave memory
      *
@@ -124,25 +134,48 @@ export declare class HypersaveClient {
      *
      * @example
      * ```typescript
+     * // Get full profile
      * const profile = await client.getProfile();
      * console.log(profile.profile);
-     * console.log(`${profile.facts.length} total facts`);
+     *
+     * // Get only work-related facts
+     * const workProfile = await client.getProfile({ section: 'work' });
+     * console.log(workProfile.facts);
      * ```
      */
     getProfile(options?: {
         userId?: string;
+        /** Filter to specific section: identity, work, health, preference, etc. */
+        section?: string;
     }): Promise<ProfileResult>;
     /**
      * Get your knowledge graph
      *
      * @example
      * ```typescript
+     * // Get full graph
      * const graph = await client.getGraph();
      * console.log(`${graph.nodes.length} nodes, ${graph.edges.length} edges`);
+     *
+     * // Get graph filtered to specific entity
+     * const johnGraph = await client.getGraph({ entity: 'John' });
+     *
+     * // Get 2-hop subgraph around entity
+     * const subgraph = await client.getGraph({ entity: 'John', depth: 2 });
      * ```
      */
     getGraph(options?: {
         userId?: string;
+        /** Filter to triplets mentioning this entity */
+        entity?: string;
+        /** Depth for multi-hop traversal (default: 1) */
+        depth?: number;
+        /** Starting entity for path finding */
+        startEntity?: string;
+        /** Target entity for path finding */
+        endEntity?: string;
+        /** Center entity for subgraph extraction */
+        centerEntity?: string;
     }): Promise<GraphResult>;
     /**
      * Delete a memory by ID
@@ -245,6 +278,36 @@ export declare class HypersaveClient {
      * ```
      */
     ingest(options: IngestOptions): Promise<IngestResult>;
+    /**
+     * Get learned behavioral patterns (synapses)
+     *
+     * Synapses are automatically extracted patterns from your conversations,
+     * including communication style, decision-making preferences, and work habits.
+     *
+     * @example
+     * ```typescript
+     * const synapses = await client.getSynapses();
+     * console.log(`${synapses.count} learned patterns`);
+     * for (const synapse of synapses.synapses) {
+     *   console.log(`${synapse.pattern_type}: ${synapse.description}`);
+     * }
+     * ```
+     */
+    getSynapses(options?: {
+        userId?: string;
+    }): Promise<SynapsesResult>;
+    /**
+     * Trigger synapse learning from recent interactions
+     *
+     * @example
+     * ```typescript
+     * const result = await client.triggerLearning({ lookbackDays: 30 });
+     * console.log(`New: ${result.newSynapses}, Updated: ${result.updatedSynapses}`);
+     * ```
+     */
+    triggerLearning(options?: {
+        lookbackDays?: number;
+    }): Promise<LearnResult>;
 }
 export default HypersaveClient;
 //# sourceMappingURL=client.d.ts.map

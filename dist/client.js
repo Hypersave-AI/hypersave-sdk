@@ -2,7 +2,7 @@
  * Hypersave SDK Client
  * Main client class for interacting with the Hypersave API
  */
-import { HypersaveError, AuthenticationError, ValidationError, TimeoutError, NetworkError, ParseError, createErrorFromStatus, } from './errors.js';
+import { HypersaveError, AuthenticationError, ValidationError, TimeoutError, NetworkError, ParseError, NotFoundError, RateLimitError, ServerError, createErrorFromStatus, } from './errors.js';
 const DEFAULT_BASE_URL = 'https://api.hypersave.io';
 const DEFAULT_TIMEOUT = 30000;
 /**
@@ -26,6 +26,8 @@ export class HypersaveClient {
     baseUrl;
     timeout;
     defaultUserId;
+    maxRetries;
+    retryDelay;
     constructor(config) {
         if (!config.apiKey) {
             throw new AuthenticationError('API key is required');
@@ -34,6 +36,8 @@ export class HypersaveClient {
         this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
         this.timeout = config.timeout || DEFAULT_TIMEOUT;
         this.defaultUserId = config.userId;
+        this.maxRetries = config.maxRetries ?? 3;
+        this.retryDelay = config.retryDelay ?? 1000;
     }
     // ============================================================================
     // PRIVATE HELPERS
@@ -51,7 +55,8 @@ export class HypersaveClient {
                 'X-API-Key': this.apiKey,
             };
             // Add user ID header if available
-            const userId = options?.userId || body?.userId || this.defaultUserId;
+            const bodyUserId = body?.userId;
+            const userId = options?.userId || (typeof bodyUserId === 'string' ? bodyUserId : undefined) || this.defaultUserId;
             if (userId) {
                 headers['x-user-id'] = userId;
             }
@@ -81,12 +86,18 @@ export class HypersaveClient {
         }
         catch (error) {
             clearTimeout(timeoutId);
+            // Type guard for Error objects
+            const isError = (e) => e instanceof Error;
+            const hasName = (e) => typeof e === 'object' && e !== null && 'name' in e;
             // Handle abort (timeout)
-            if (error.name === 'AbortError') {
+            if (hasName(error) && error.name === 'AbortError') {
                 throw new TimeoutError(this.timeout);
             }
             // Handle network errors
-            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            if (hasName(error) &&
+                error.name === 'TypeError' &&
+                isError(error) &&
+                error.message.includes('fetch')) {
                 throw new NetworkError('Failed to connect to Hypersave API', error);
             }
             // Re-throw Hypersave errors as-is
@@ -94,8 +105,54 @@ export class HypersaveClient {
                 throw error;
             }
             // Wrap unknown errors
-            throw new HypersaveError(error.message || 'Unknown error', undefined, error);
+            const errorMessage = isError(error) ? error.message : 'Unknown error';
+            throw new HypersaveError(errorMessage, undefined, error instanceof Error ? error : undefined);
         }
+    }
+    /**
+     * Sleep for a given number of milliseconds
+     */
+    sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+    /**
+     * Make an HTTP request with retry logic for transient errors
+     */
+    async requestWithRetry(method, path, body, options) {
+        let lastError;
+        for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+            try {
+                return await this.request(method, path, body, options);
+            }
+            catch (error) {
+                lastError = error;
+                // Don't retry client errors (4xx except 429)
+                if (error instanceof ValidationError ||
+                    error instanceof AuthenticationError ||
+                    error instanceof NotFoundError) {
+                    throw error;
+                }
+                // Retry on rate limit with backoff
+                if (error instanceof RateLimitError) {
+                    const waitTime = error.retryAfter
+                        ? error.retryAfter * 1000
+                        : Math.pow(2, attempt) * this.retryDelay;
+                    await this.sleep(waitTime);
+                    continue;
+                }
+                // Retry on network/server errors
+                if (error instanceof NetworkError ||
+                    error instanceof ServerError ||
+                    error instanceof TimeoutError) {
+                    const waitTime = Math.pow(2, attempt) * this.retryDelay;
+                    await this.sleep(waitTime);
+                    continue;
+                }
+                // Unknown error - don't retry
+                throw error;
+            }
+        }
+        throw lastError;
     }
     // ============================================================================
     // CORE METHODS
@@ -122,7 +179,7 @@ export class HypersaveClient {
         if (!options.content) {
             throw new ValidationError('Content is required');
         }
-        return this.request('POST', '/v1/save', {
+        return this.requestWithRetry('POST', '/v1/save', {
             content: options.content,
             title: options.title,
             type: options.type,
@@ -159,7 +216,7 @@ export class HypersaveClient {
         if (!pendingId) {
             throw new ValidationError('Pending ID is required');
         }
-        return this.request('GET', `/v1/save/status/${encodeURIComponent(pendingId)}`);
+        return this.requestWithRetry('GET', `/v1/save/status/${encodeURIComponent(pendingId)}`);
     }
     /**
      * Ask a question and get a verified answer from your memories
@@ -175,7 +232,7 @@ export class HypersaveClient {
         if (!query) {
             throw new ValidationError('Query is required');
         }
-        return this.request('POST', '/v1/ask', {
+        return this.requestWithRetry('POST', '/v1/ask', {
             query,
             userId: options?.userId,
         });
@@ -195,7 +252,7 @@ export class HypersaveClient {
         if (!query) {
             throw new ValidationError('Query is required');
         }
-        return this.request('POST', '/v1/search', {
+        return this.requestWithRetry('POST', '/v1/search', {
             query,
             includeContext: options?.includeContext,
             limit: options?.limit,
@@ -218,7 +275,7 @@ export class HypersaveClient {
         if (!message) {
             throw new ValidationError('Message is required');
         }
-        return this.request('POST', '/v1/query', {
+        return this.requestWithRetry('POST', '/v1/query', {
             message,
             skipMemory: options?.skipMemory,
             limit: options?.limit,
@@ -241,40 +298,63 @@ export class HypersaveClient {
         if (options?.userId)
             params.set('userId', options.userId);
         const query = params.toString();
-        return this.request('GET', `/v1/memories${query ? `?${query}` : ''}`);
+        return this.requestWithRetry('GET', `/v1/memories${query ? `?${query}` : ''}`);
     }
     /**
      * Get your user profile built from facts
      *
      * @example
      * ```typescript
+     * // Get full profile
      * const profile = await client.getProfile();
      * console.log(profile.profile);
-     * console.log(`${profile.facts.length} total facts`);
+     *
+     * // Get only work-related facts
+     * const workProfile = await client.getProfile({ section: 'work' });
+     * console.log(workProfile.facts);
      * ```
      */
     async getProfile(options) {
         const params = new URLSearchParams();
         if (options?.userId)
             params.set('userId', options.userId);
+        if (options?.section)
+            params.set('section', options.section);
         const query = params.toString();
-        return this.request('GET', `/v1/profile${query ? `?${query}` : ''}`);
+        return this.requestWithRetry('GET', `/v1/profile${query ? `?${query}` : ''}`);
     }
     /**
      * Get your knowledge graph
      *
      * @example
      * ```typescript
+     * // Get full graph
      * const graph = await client.getGraph();
      * console.log(`${graph.nodes.length} nodes, ${graph.edges.length} edges`);
+     *
+     * // Get graph filtered to specific entity
+     * const johnGraph = await client.getGraph({ entity: 'John' });
+     *
+     * // Get 2-hop subgraph around entity
+     * const subgraph = await client.getGraph({ entity: 'John', depth: 2 });
      * ```
      */
     async getGraph(options) {
         const params = new URLSearchParams();
         if (options?.userId)
             params.set('userId', options.userId);
+        if (options?.entity)
+            params.set('entity', options.entity);
+        if (options?.depth)
+            params.set('depth', options.depth.toString());
+        if (options?.startEntity)
+            params.set('startEntity', options.startEntity);
+        if (options?.endEntity)
+            params.set('endEntity', options.endEntity);
+        if (options?.centerEntity)
+            params.set('centerEntity', options.centerEntity);
         const query = params.toString();
-        return this.request('GET', `/v1/graph${query ? `?${query}` : ''}`);
+        return this.requestWithRetry('GET', `/v1/graph${query ? `?${query}` : ''}`);
     }
     /**
      * Delete a memory by ID
@@ -288,7 +368,7 @@ export class HypersaveClient {
         if (!id) {
             throw new ValidationError('Memory ID is required');
         }
-        return this.request('DELETE', `/v1/memory/${encodeURIComponent(id)}`, undefined, options);
+        return this.requestWithRetry('DELETE', `/v1/memory/${encodeURIComponent(id)}`, undefined, options);
     }
     /**
      * Create a reminder
@@ -308,7 +388,7 @@ export class HypersaveClient {
         if (!options.trigger) {
             throw new ValidationError('Reminder trigger is required');
         }
-        return this.request('POST', '/v1/remind', {
+        return this.requestWithRetry('POST', '/v1/remind', {
             content: options.content,
             trigger: options.trigger,
             triggerType: options.triggerType,
@@ -330,7 +410,7 @@ export class HypersaveClient {
         if (options?.userId)
             params.set('userId', options.userId);
         const query = params.toString();
-        return this.request('GET', `/v1/usage${query ? `?${query}` : ''}`);
+        return this.requestWithRetry('GET', `/v1/usage${query ? `?${query}` : ''}`);
     }
     // ============================================================================
     // FACTS & RELATIONS METHODS
@@ -358,7 +438,7 @@ export class HypersaveClient {
         if (options?.userId)
             params.set('userId', options.userId);
         const query = params.toString();
-        return this.request('GET', `/v1/facts${query ? `?${query}` : ''}`);
+        return this.requestWithRetry('GET', `/v1/facts${query ? `?${query}` : ''}`);
     }
     /**
      * Get fact relations and knowledge triplets
@@ -380,7 +460,7 @@ export class HypersaveClient {
         if (options?.userId)
             params.set('userId', options.userId);
         const query = params.toString();
-        return this.request('GET', `/v1/relations${query ? `?${query}` : ''}`);
+        return this.requestWithRetry('GET', `/v1/relations${query ? `?${query}` : ''}`);
     }
     /**
      * Get API performance metrics
@@ -393,7 +473,7 @@ export class HypersaveClient {
      * ```
      */
     async getMetrics() {
-        return this.request('GET', '/v1/metrics');
+        return this.requestWithRetry('GET', '/v1/metrics');
     }
     /**
      * Get extracted entities (people, places, organizations, etc.)
@@ -414,7 +494,7 @@ export class HypersaveClient {
         if (options?.userId)
             params.set('userId', options.userId);
         const query = params.toString();
-        return this.request('GET', `/v1/entities${query ? `?${query}` : ''}`);
+        return this.requestWithRetry('GET', `/v1/entities${query ? `?${query}` : ''}`);
     }
     /**
      * Enhanced document ingestion with full processing
@@ -437,7 +517,7 @@ export class HypersaveClient {
         if (!options.title) {
             throw new ValidationError('Title is required');
         }
-        return this.request('POST', '/v1/ingest', {
+        return this.requestWithRetry('POST', '/v1/ingest', {
             content: options.content,
             title: options.title,
             type: options.type,
@@ -445,6 +525,42 @@ export class HypersaveClient {
             sector: options.sector,
             metadata: options.metadata,
             userId: options.userId,
+        });
+    }
+    /**
+     * Get learned behavioral patterns (synapses)
+     *
+     * Synapses are automatically extracted patterns from your conversations,
+     * including communication style, decision-making preferences, and work habits.
+     *
+     * @example
+     * ```typescript
+     * const synapses = await client.getSynapses();
+     * console.log(`${synapses.count} learned patterns`);
+     * for (const synapse of synapses.synapses) {
+     *   console.log(`${synapse.pattern_type}: ${synapse.description}`);
+     * }
+     * ```
+     */
+    async getSynapses(options) {
+        const params = new URLSearchParams();
+        if (options?.userId)
+            params.set('userId', options.userId);
+        const query = params.toString();
+        return this.requestWithRetry('GET', `/v1/synapses${query ? `?${query}` : ''}`);
+    }
+    /**
+     * Trigger synapse learning from recent interactions
+     *
+     * @example
+     * ```typescript
+     * const result = await client.triggerLearning({ lookbackDays: 30 });
+     * console.log(`New: ${result.newSynapses}, Updated: ${result.updatedSynapses}`);
+     * ```
+     */
+    async triggerLearning(options) {
+        return this.requestWithRetry('POST', '/v1/synapses/learn', {
+            lookbackDays: options?.lookbackDays || 30,
         });
     }
 }

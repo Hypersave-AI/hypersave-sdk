@@ -50,6 +50,10 @@ export interface HypersaveConfig {
   timeout?: number;
   /** Default user ID for requests (optional) */
   userId?: string;
+  /** Maximum number of retry attempts for transient errors (default: 3) */
+  maxRetries?: number;
+  /** Base delay in milliseconds for exponential backoff (default: 1000) */
+  retryDelay?: number;
 }
 
 // ============================================================================
@@ -118,6 +122,20 @@ export interface AskOptions {
   userId?: string;
 }
 
+/** Source document used in answer */
+export interface AnswerSource {
+  /** Source document or fact ID */
+  id: string;
+  /** Type of source */
+  type: 'document' | 'fact' | 'triplet' | 'chunk';
+  /** Snippet of content from source */
+  content?: string;
+  /** Title of source document */
+  title?: string;
+  /** Relevance score */
+  relevance?: number;
+}
+
 export interface AskResult {
   success: boolean;
   /** The answer to your question */
@@ -125,7 +143,7 @@ export interface AskResult {
   /** Confidence score (0-1) */
   confidence: number;
   /** Source documents used */
-  sources: any[];
+  sources: AnswerSource[];
   /** Context about the retrieval */
   context: {
     /** Retrieval mode used */
@@ -272,10 +290,34 @@ export interface Fact {
   created_at?: string;
 }
 
+/** Profile category with facts */
+export interface ProfileCategory {
+  /** Facts in this category */
+  facts: Array<{ key: string; value: string }>;
+  /** Summary of this category */
+  summary?: string;
+}
+
+/** Structured user profile */
+export interface UserProfile {
+  /** Identity information */
+  identity?: ProfileCategory;
+  /** Work-related information */
+  work?: ProfileCategory;
+  /** Relationship information */
+  relationships?: ProfileCategory;
+  /** User preferences */
+  preferences?: ProfileCategory;
+  /** Skills and abilities */
+  skills?: ProfileCategory;
+  /** Other profile sections */
+  [category: string]: ProfileCategory | undefined;
+}
+
 export interface ProfileResult {
   success: boolean;
   /** Structured user profile */
-  profile: Record<string, any>;
+  profile: UserProfile;
   /** Raw facts */
   facts: Fact[];
   /** Core memory summary */
