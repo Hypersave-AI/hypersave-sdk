@@ -20,6 +20,19 @@ export interface HypersaveConfig {
     /** Base delay in milliseconds for exponential backoff (default: 1000) */
     retryDelay?: number;
 }
+/**
+ * Options that can be passed to individual API requests
+ */
+export interface RequestOptions {
+    /** User ID for this specific request */
+    userId?: string;
+    /** AbortSignal for request cancellation */
+    signal?: AbortSignal;
+    /** Override timeout for this request (in milliseconds) */
+    timeout?: number;
+    /** Request ID for debugging/tracing */
+    requestId?: string;
+}
 export interface SaveOptions {
     /** The content to save (text, URL, or file content) */
     content: string;

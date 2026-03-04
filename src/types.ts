@@ -57,6 +57,24 @@ export interface HypersaveConfig {
 }
 
 // ============================================================================
+// REQUEST OPTIONS
+// ============================================================================
+
+/**
+ * Options that can be passed to individual API requests
+ */
+export interface RequestOptions {
+  /** User ID for this specific request */
+  userId?: string;
+  /** AbortSignal for request cancellation */
+  signal?: AbortSignal;
+  /** Override timeout for this request (in milliseconds) */
+  timeout?: number;
+  /** Request ID for debugging/tracing */
+  requestId?: string;
+}
+
+// ============================================================================
 // SAVE TYPES
 // ============================================================================
 

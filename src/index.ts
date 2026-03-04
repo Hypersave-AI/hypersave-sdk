@@ -12,6 +12,7 @@ export { HypersaveClient, default } from './client.js';
 export type {
   // Configuration
   HypersaveConfig,
+  RequestOptions,
 
   // Core types
   DocumentType,
@@ -85,6 +86,11 @@ export type {
   // Ingest
   IngestOptions,
   IngestResult,
+
+  // Synapses
+  Synapse,
+  SynapsesResult,
+  LearnResult,
 
   // Generic
   ApiResponse,

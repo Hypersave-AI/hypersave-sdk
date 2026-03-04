@@ -2,7 +2,8 @@
  * Hypersave SDK Client
  * Main client class for interacting with the Hypersave API
  */
-import { HypersaveConfig, SaveOptions, SaveResult, SaveStatus, AskResult, SearchOptions, SearchResult, QueryOptions, QueryResult, GetMemoriesOptions, MemoriesResult, ProfileResult, GraphResult, RemindOptions, RemindResult, UsageResult, DeleteResult, FactsOptions, FactsResult, RelationsOptions, RelationsResult, MetricsResult, EntitiesOptions, EntitiesResult, IngestOptions, IngestResult, SynapsesResult, LearnResult } from './types.js';
+import { HypersaveConfig, SaveOptions, SaveResult, SaveStatus, AskResult, SearchOptions, SearchResult, QueryOptions, QueryResult, GetMemoriesOptions, MemoriesResult, ProfileResult, GraphResult, RemindOptions, RemindResult, UsageResult, DeleteResult, FactsOptions, FactsResult, RelationsOptions, RelationsResult, MetricsResult, EntitiesOptions, EntitiesResult, IngestOptions, IngestResult, SynapsesResult, LearnResult, RequestOptions } from './types.js';
+export type { RequestOptions };
 /**
  * Hypersave API Client
  *
@@ -17,6 +18,11 @@ import { HypersaveConfig, SaveOptions, SaveResult, SaveStatus, AskResult, Search
  *
  * // Ask a question
  * const answer = await client.ask('What did I save?');
+ *
+ * // Cancel a request
+ * const controller = new AbortController();
+ * const promise = client.ask('Long query...', { signal: controller.signal });
+ * controller.abort(); // Cancel the request
  * ```
  */
 export declare class HypersaveClient {
@@ -26,13 +32,39 @@ export declare class HypersaveClient {
     private readonly defaultUserId?;
     private readonly maxRetries;
     private readonly retryDelay;
+    /** Active abort controllers for cleanup */
+    private readonly activeRequests;
     constructor(config: HypersaveConfig);
+    /**
+     * Cancel all active requests
+     */
+    cancelAll(): void;
+    /**
+     * Get count of active requests
+     */
+    get activeRequestCount(): number;
+    /**
+     * Generate a unique request ID
+     */
+    private generateRequestId;
+    /**
+     * Add random jitter to prevent thundering herd
+     */
+    private addJitter;
+    /**
+     * Check if an error is retryable
+     */
+    private isRetryable;
+    /**
+     * Calculate backoff delay for retry attempt
+     */
+    private calculateBackoff;
     /**
      * Make an HTTP request to the API
      */
     private request;
     /**
-     * Sleep for a given number of milliseconds
+     * Sleep for a given number of milliseconds (cancellable)
      */
     private sleep;
     /**
@@ -55,9 +87,14 @@ export declare class HypersaveClient {
      *
      * // Save and wait for completion
      * const result = await client.saveSync({ content: 'Important note' });
+     *
+     * // Cancellable save
+     * const controller = new AbortController();
+     * const promise = client.save({ content: 'Long content...' }, { signal: controller.signal });
+     * controller.abort(); // Cancel if needed
      * ```
      */
-    save(options: SaveOptions): Promise<SaveResult>;
+    save(options: SaveOptions, requestOptions?: RequestOptions): Promise<SaveResult>;
     /**
      * Save content synchronously (waits for completion)
      *
@@ -67,7 +104,7 @@ export declare class HypersaveClient {
      * console.log(`Saved with ${result.saved?.facts} facts`);
      * ```
      */
-    saveSync(options: Omit<SaveOptions, 'async'>): Promise<SaveResult>;
+    saveSync(options: Omit<SaveOptions, 'async'>, requestOptions?: RequestOptions): Promise<SaveResult>;
     /**
      * Check the status of an async save operation
      *
@@ -80,7 +117,7 @@ export declare class HypersaveClient {
      * }
      * ```
      */
-    getSaveStatus(pendingId: string): Promise<SaveStatus>;
+    getSaveStatus(pendingId: string, requestOptions?: RequestOptions): Promise<SaveStatus>;
     /**
      * Ask a question and get a verified answer from your memories
      *
@@ -89,9 +126,14 @@ export declare class HypersaveClient {
      * const result = await client.ask('What did I learn about TypeScript?');
      * console.log(result.answer);
      * console.log(`Confidence: ${result.confidence}`);
+     *
+     * // With cancellation
+     * const controller = new AbortController();
+     * setTimeout(() => controller.abort(), 5000); // Cancel after 5s
+     * const result = await client.ask('Complex query...', { signal: controller.signal });
      * ```
      */
-    ask(query: string, options?: {
+    ask(query: string, options?: RequestOptions & {
         userId?: string;
     }): Promise<AskResult>;
     /**
@@ -105,7 +147,7 @@ export declare class HypersaveClient {
      * }
      * ```
      */
-    search(query: string, options?: Omit<SearchOptions, 'query'>): Promise<SearchResult>;
+    search(query: string, options?: Omit<SearchOptions, 'query'> & RequestOptions): Promise<SearchResult>;
     /**
      * Multi-strategy memory search with reminders
      *
@@ -118,7 +160,7 @@ export declare class HypersaveClient {
      * }
      * ```
      */
-    query(message: string, options?: Omit<QueryOptions, 'message'>): Promise<QueryResult>;
+    query(message: string, options?: Omit<QueryOptions, 'message'> & RequestOptions): Promise<QueryResult>;
     /**
      * Get all saved memories (documents and facts count)
      *
@@ -128,7 +170,7 @@ export declare class HypersaveClient {
      * console.log(`${memories.total} documents, ${memories.facts} facts`);
      * ```
      */
-    getMemories(options?: GetMemoriesOptions): Promise<MemoriesResult>;
+    getMemories(options?: GetMemoriesOptions & RequestOptions): Promise<MemoriesResult>;
     /**
      * Get your user profile built from facts
      *
@@ -143,7 +185,7 @@ export declare class HypersaveClient {
      * console.log(workProfile.facts);
      * ```
      */
-    getProfile(options?: {
+    getProfile(options?: RequestOptions & {
         userId?: string;
         /** Filter to specific section: identity, work, health, preference, etc. */
         section?: string;
@@ -164,7 +206,7 @@ export declare class HypersaveClient {
      * const subgraph = await client.getGraph({ entity: 'John', depth: 2 });
      * ```
      */
-    getGraph(options?: {
+    getGraph(options?: RequestOptions & {
         userId?: string;
         /** Filter to triplets mentioning this entity */
         entity?: string;
@@ -185,7 +227,7 @@ export declare class HypersaveClient {
      * await client.deleteMemory('doc-123');
      * ```
      */
-    deleteMemory(id: string, options?: {
+    deleteMemory(id: string, options?: RequestOptions & {
         userId?: string;
     }): Promise<DeleteResult>;
     /**
@@ -199,7 +241,7 @@ export declare class HypersaveClient {
      * });
      * ```
      */
-    remind(options: RemindOptions): Promise<RemindResult>;
+    remind(options: RemindOptions, requestOptions?: RequestOptions): Promise<RemindResult>;
     /**
      * Get API usage statistics
      *
@@ -209,7 +251,7 @@ export declare class HypersaveClient {
      * console.log(`${usage.usage.documentsIndexed} documents indexed`);
      * ```
      */
-    getUsage(options?: {
+    getUsage(options?: RequestOptions & {
         userId?: string;
     }): Promise<UsageResult>;
     /**
@@ -224,7 +266,7 @@ export declare class HypersaveClient {
      * }
      * ```
      */
-    getFacts(options?: FactsOptions): Promise<FactsResult>;
+    getFacts(options?: FactsOptions & RequestOptions): Promise<FactsResult>;
     /**
      * Get fact relations and knowledge triplets
      *
@@ -238,7 +280,7 @@ export declare class HypersaveClient {
      * }
      * ```
      */
-    getRelations(options?: RelationsOptions): Promise<RelationsResult>;
+    getRelations(options?: RelationsOptions & RequestOptions): Promise<RelationsResult>;
     /**
      * Get API performance metrics
      *
@@ -249,7 +291,7 @@ export declare class HypersaveClient {
      * console.log(`Cache hit rate: ${metrics.cache.hitRate}`);
      * ```
      */
-    getMetrics(): Promise<MetricsResult>;
+    getMetrics(requestOptions?: RequestOptions): Promise<MetricsResult>;
     /**
      * Get extracted entities (people, places, organizations, etc.)
      *
@@ -262,7 +304,7 @@ export declare class HypersaveClient {
      * }
      * ```
      */
-    getEntities(options?: EntitiesOptions): Promise<EntitiesResult>;
+    getEntities(options?: EntitiesOptions & RequestOptions): Promise<EntitiesResult>;
     /**
      * Enhanced document ingestion with full processing
      *
@@ -277,7 +319,7 @@ export declare class HypersaveClient {
      * console.log(`Document ${result.documentId}: ${result.facts} facts, ${result.entities} entities`);
      * ```
      */
-    ingest(options: IngestOptions): Promise<IngestResult>;
+    ingest(options: IngestOptions, requestOptions?: RequestOptions): Promise<IngestResult>;
     /**
      * Get learned behavioral patterns (synapses)
      *
@@ -293,7 +335,7 @@ export declare class HypersaveClient {
      * }
      * ```
      */
-    getSynapses(options?: {
+    getSynapses(options?: RequestOptions & {
         userId?: string;
     }): Promise<SynapsesResult>;
     /**
@@ -307,7 +349,59 @@ export declare class HypersaveClient {
      */
     triggerLearning(options?: {
         lookbackDays?: number;
-    }): Promise<LearnResult>;
+    } & RequestOptions): Promise<LearnResult>;
+    /**
+     * Wait for an async save operation to complete
+     *
+     * @example
+     * ```typescript
+     * const save = await client.save({ content: 'Long article...' });
+     * if (save.pendingId) {
+     *   const status = await client.waitForSave(save.pendingId, {
+     *     pollInterval: 1000,
+     *     maxWait: 60000
+     *   });
+     *   console.log(`Save completed with status: ${status.status}`);
+     * }
+     * ```
+     */
+    waitForSave(pendingId: string, options?: {
+        /** Polling interval in ms (default: 1000) */
+        pollInterval?: number;
+        /** Maximum wait time in ms (default: 60000) */
+        maxWait?: number;
+        /** AbortSignal for cancellation */
+        signal?: AbortSignal;
+    }): Promise<SaveStatus>;
+    /**
+     * Batch save multiple pieces of content
+     *
+     * @example
+     * ```typescript
+     * const results = await client.batchSave([
+     *   { content: 'Note 1' },
+     *   { content: 'Note 2' },
+     *   { content: 'Note 3' }
+     * ]);
+     * console.log(`${results.succeeded} saved, ${results.failed} failed`);
+     * ```
+     */
+    batchSave(items: SaveOptions[], options?: {
+        /** Maximum concurrent saves (default: 5) */
+        concurrency?: number;
+        /** Continue on errors (default: true) */
+        continueOnError?: boolean;
+        /** AbortSignal for cancellation */
+        signal?: AbortSignal;
+    }): Promise<{
+        results: Array<{
+            success: boolean;
+            result?: SaveResult;
+            error?: Error;
+        }>;
+        succeeded: number;
+        failed: number;
+    }>;
 }
 export default HypersaveClient;
 //# sourceMappingURL=client.d.ts.map

@@ -32,6 +32,7 @@ import {
   IngestResult,
   SynapsesResult,
   LearnResult,
+  RequestOptions,
 } from './types.js';
 
 import {
@@ -49,6 +50,12 @@ import {
 
 const DEFAULT_BASE_URL = 'https://api.hypersave.io';
 const DEFAULT_TIMEOUT = 30000;
+const DEFAULT_MAX_RETRIES = 3;
+const DEFAULT_RETRY_DELAY = 1000;
+const MAX_JITTER_MS = 200;
+
+// Re-export RequestOptions for convenience
+export type { RequestOptions };
 
 /**
  * Hypersave API Client
@@ -64,6 +71,11 @@ const DEFAULT_TIMEOUT = 30000;
  *
  * // Ask a question
  * const answer = await client.ask('What did I save?');
+ *
+ * // Cancel a request
+ * const controller = new AbortController();
+ * const promise = client.ask('Long query...', { signal: controller.signal });
+ * controller.abort(); // Cancel the request
  * ```
  */
 export class HypersaveClient {
@@ -74,22 +86,98 @@ export class HypersaveClient {
   private readonly maxRetries: number;
   private readonly retryDelay: number;
 
+  /** Active abort controllers for cleanup */
+  private readonly activeRequests: Map<string, AbortController> = new Map();
+
   constructor(config: HypersaveConfig) {
     if (!config.apiKey) {
       throw new AuthenticationError('API key is required');
+    }
+
+    if (config.apiKey.length < 10) {
+      throw new ValidationError('API key appears to be invalid (too short)');
     }
 
     this.apiKey = config.apiKey;
     this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
     this.timeout = config.timeout || DEFAULT_TIMEOUT;
     this.defaultUserId = config.userId;
-    this.maxRetries = config.maxRetries ?? 3;
-    this.retryDelay = config.retryDelay ?? 1000;
+    this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
+    this.retryDelay = config.retryDelay ?? DEFAULT_RETRY_DELAY;
+  }
+
+  /**
+   * Cancel all active requests
+   */
+  cancelAll(): void {
+    for (const [requestId, controller] of this.activeRequests) {
+      controller.abort();
+      this.activeRequests.delete(requestId);
+    }
+  }
+
+  /**
+   * Get count of active requests
+   */
+  get activeRequestCount(): number {
+    return this.activeRequests.size;
   }
 
   // ============================================================================
   // PRIVATE HELPERS
   // ============================================================================
+
+  /**
+   * Generate a unique request ID
+   */
+  private generateRequestId(): string {
+    return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  /**
+   * Add random jitter to prevent thundering herd
+   */
+  private addJitter(baseDelay: number): number {
+    const jitter = Math.random() * MAX_JITTER_MS;
+    return baseDelay + jitter;
+  }
+
+  /**
+   * Check if an error is retryable
+   */
+  private isRetryable(error: unknown): boolean {
+    // Don't retry client errors (4xx except 429)
+    if (
+      error instanceof ValidationError ||
+      error instanceof AuthenticationError ||
+      error instanceof NotFoundError ||
+      error instanceof ParseError
+    ) {
+      return false;
+    }
+
+    // Retry on rate limit, network, server, and timeout errors
+    return (
+      error instanceof RateLimitError ||
+      error instanceof NetworkError ||
+      error instanceof ServerError ||
+      error instanceof TimeoutError
+    );
+  }
+
+  /**
+   * Calculate backoff delay for retry attempt
+   */
+  private calculateBackoff(attempt: number, error?: unknown): number {
+    // For rate limit errors, use server-provided retry-after if available
+    if (error instanceof RateLimitError && error.retryAfter) {
+      return error.retryAfter * 1000;
+    }
+
+    // Exponential backoff with jitter
+    const baseDelay = Math.pow(2, attempt) * this.retryDelay;
+    return this.addJitter(baseDelay);
+  }
 
   /**
    * Make an HTTP request to the API
@@ -98,16 +186,32 @@ export class HypersaveClient {
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     body?: Record<string, unknown>,
-    options?: { userId?: string }
+    options?: RequestOptions
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    const requestId = options?.requestId || this.generateRequestId();
+    const requestTimeout = options?.timeout ?? this.timeout;
+
+    // Create abort controller that combines user signal and timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    this.activeRequests.set(requestId, controller);
+
+    // Link user-provided signal to our controller
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        this.activeRequests.delete(requestId);
+        throw new TimeoutError(0, 'Request was cancelled before it started');
+      }
+      options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+
+    const timeoutId = setTimeout(() => controller.abort(), requestTimeout);
 
     try {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'X-API-Key': this.apiKey,
+        'X-Request-ID': requestId,
       };
 
       // Add user ID header if available
@@ -125,6 +229,7 @@ export class HypersaveClient {
       });
 
       clearTimeout(timeoutId);
+      this.activeRequests.delete(requestId);
 
       // Handle non-JSON responses
       const contentType = response.headers.get('content-type');
@@ -147,15 +252,19 @@ export class HypersaveClient {
       return data as T;
     } catch (error: unknown) {
       clearTimeout(timeoutId);
+      this.activeRequests.delete(requestId);
 
       // Type guard for Error objects
       const isError = (e: unknown): e is Error => e instanceof Error;
       const hasName = (e: unknown): e is { name: string } =>
         typeof e === 'object' && e !== null && 'name' in e;
 
-      // Handle abort (timeout)
+      // Handle abort - distinguish between user cancellation and timeout
       if (hasName(error) && error.name === 'AbortError') {
-        throw new TimeoutError(this.timeout);
+        if (options?.signal?.aborted) {
+          throw new TimeoutError(0, 'Request was cancelled');
+        }
+        throw new TimeoutError(requestTimeout);
       }
 
       // Handle network errors
@@ -180,10 +289,22 @@ export class HypersaveClient {
   }
 
   /**
-   * Sleep for a given number of milliseconds
+   * Sleep for a given number of milliseconds (cancellable)
    */
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new TimeoutError(0, 'Request was cancelled'));
+        return;
+      }
+
+      const timeoutId = setTimeout(resolve, ms);
+
+      signal?.addEventListener('abort', () => {
+        clearTimeout(timeoutId);
+        reject(new TimeoutError(0, 'Request was cancelled'));
+      }, { once: true });
+    });
   }
 
   /**
@@ -193,7 +314,7 @@ export class HypersaveClient {
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     body?: Record<string, unknown>,
-    options?: { userId?: string }
+    options?: RequestOptions
   ): Promise<T> {
     let lastError: Error | undefined;
 
@@ -203,37 +324,26 @@ export class HypersaveClient {
       } catch (error) {
         lastError = error as Error;
 
-        // Don't retry client errors (4xx except 429)
-        if (
-          error instanceof ValidationError ||
-          error instanceof AuthenticationError ||
-          error instanceof NotFoundError
-        ) {
+        // Check for user cancellation - don't retry
+        if (options?.signal?.aborted) {
           throw error;
         }
 
-        // Retry on rate limit with backoff
-        if (error instanceof RateLimitError) {
-          const waitTime = error.retryAfter
-            ? error.retryAfter * 1000
-            : Math.pow(2, attempt) * this.retryDelay;
-          await this.sleep(waitTime);
-          continue;
+        // Check if error is retryable
+        if (!this.isRetryable(error)) {
+          throw error;
         }
 
-        // Retry on network/server errors
-        if (
-          error instanceof NetworkError ||
-          error instanceof ServerError ||
-          error instanceof TimeoutError
-        ) {
-          const waitTime = Math.pow(2, attempt) * this.retryDelay;
-          await this.sleep(waitTime);
-          continue;
+        // Don't sleep after the last attempt
+        if (attempt < this.maxRetries - 1) {
+          const waitTime = this.calculateBackoff(attempt, error);
+          try {
+            await this.sleep(waitTime, options?.signal);
+          } catch {
+            // Cancelled during sleep
+            throw error;
+          }
         }
-
-        // Unknown error - don't retry
-        throw error;
       }
     }
 
@@ -260,11 +370,20 @@ export class HypersaveClient {
    *
    * // Save and wait for completion
    * const result = await client.saveSync({ content: 'Important note' });
+   *
+   * // Cancellable save
+   * const controller = new AbortController();
+   * const promise = client.save({ content: 'Long content...' }, { signal: controller.signal });
+   * controller.abort(); // Cancel if needed
    * ```
    */
-  async save(options: SaveOptions): Promise<SaveResult> {
+  async save(options: SaveOptions, requestOptions?: RequestOptions): Promise<SaveResult> {
     if (!options.content) {
       throw new ValidationError('Content is required');
+    }
+
+    if (typeof options.content !== 'string') {
+      throw new ValidationError('Content must be a string');
     }
 
     return this.requestWithRetry<SaveResult>('POST', '/v1/save', {
@@ -274,6 +393,9 @@ export class HypersaveClient {
       category: options.category,
       async: options.async !== false, // Default to async
       userId: options.userId,
+    }, {
+      ...requestOptions,
+      userId: requestOptions?.userId ?? options.userId,
     });
   }
 
@@ -286,8 +408,8 @@ export class HypersaveClient {
    * console.log(`Saved with ${result.saved?.facts} facts`);
    * ```
    */
-  async saveSync(options: Omit<SaveOptions, 'async'>): Promise<SaveResult> {
-    return this.save({ ...options, async: false });
+  async saveSync(options: Omit<SaveOptions, 'async'>, requestOptions?: RequestOptions): Promise<SaveResult> {
+    return this.save({ ...options, async: false }, requestOptions);
   }
 
   /**
@@ -302,12 +424,16 @@ export class HypersaveClient {
    * }
    * ```
    */
-  async getSaveStatus(pendingId: string): Promise<SaveStatus> {
+  async getSaveStatus(pendingId: string, requestOptions?: RequestOptions): Promise<SaveStatus> {
     if (!pendingId) {
       throw new ValidationError('Pending ID is required');
     }
 
-    return this.requestWithRetry<SaveStatus>('GET', `/v1/save/status/${encodeURIComponent(pendingId)}`);
+    if (typeof pendingId !== 'string') {
+      throw new ValidationError('Pending ID must be a string');
+    }
+
+    return this.requestWithRetry<SaveStatus>('GET', `/v1/save/status/${encodeURIComponent(pendingId)}`, undefined, requestOptions);
   }
 
   /**
@@ -318,17 +444,30 @@ export class HypersaveClient {
    * const result = await client.ask('What did I learn about TypeScript?');
    * console.log(result.answer);
    * console.log(`Confidence: ${result.confidence}`);
+   *
+   * // With cancellation
+   * const controller = new AbortController();
+   * setTimeout(() => controller.abort(), 5000); // Cancel after 5s
+   * const result = await client.ask('Complex query...', { signal: controller.signal });
    * ```
    */
-  async ask(query: string, options?: { userId?: string }): Promise<AskResult> {
+  async ask(query: string, options?: RequestOptions & { userId?: string }): Promise<AskResult> {
     if (!query) {
       throw new ValidationError('Query is required');
+    }
+
+    if (typeof query !== 'string') {
+      throw new ValidationError('Query must be a string');
+    }
+
+    if (query.length > 10000) {
+      throw new ValidationError('Query exceeds maximum length of 10000 characters');
     }
 
     return this.requestWithRetry<AskResult>('POST', '/v1/ask', {
       query,
       userId: options?.userId,
-    });
+    }, options);
   }
 
   /**
@@ -342,9 +481,13 @@ export class HypersaveClient {
    * }
    * ```
    */
-  async search(query: string, options?: Omit<SearchOptions, 'query'>): Promise<SearchResult> {
+  async search(query: string, options?: Omit<SearchOptions, 'query'> & RequestOptions): Promise<SearchResult> {
     if (!query) {
       throw new ValidationError('Query is required');
+    }
+
+    if (typeof query !== 'string') {
+      throw new ValidationError('Query must be a string');
     }
 
     return this.requestWithRetry<SearchResult>('POST', '/v1/search', {
@@ -352,7 +495,7 @@ export class HypersaveClient {
       includeContext: options?.includeContext,
       limit: options?.limit,
       userId: options?.userId,
-    });
+    }, options);
   }
 
   /**
@@ -367,9 +510,13 @@ export class HypersaveClient {
    * }
    * ```
    */
-  async query(message: string, options?: Omit<QueryOptions, 'message'>): Promise<QueryResult> {
+  async query(message: string, options?: Omit<QueryOptions, 'message'> & RequestOptions): Promise<QueryResult> {
     if (!message) {
       throw new ValidationError('Message is required');
+    }
+
+    if (typeof message !== 'string') {
+      throw new ValidationError('Message must be a string');
     }
 
     return this.requestWithRetry<QueryResult>('POST', '/v1/query', {
@@ -377,7 +524,7 @@ export class HypersaveClient {
       skipMemory: options?.skipMemory,
       limit: options?.limit,
       userId: options?.userId,
-    });
+    }, options);
   }
 
   /**
@@ -389,13 +536,13 @@ export class HypersaveClient {
    * console.log(`${memories.total} documents, ${memories.facts} facts`);
    * ```
    */
-  async getMemories(options?: GetMemoriesOptions): Promise<MemoriesResult> {
+  async getMemories(options?: GetMemoriesOptions & RequestOptions): Promise<MemoriesResult> {
     const params = new URLSearchParams();
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.userId) params.set('userId', options.userId);
 
     const query = params.toString();
-    return this.requestWithRetry<MemoriesResult>('GET', `/v1/memories${query ? `?${query}` : ''}`);
+    return this.requestWithRetry<MemoriesResult>('GET', `/v1/memories${query ? `?${query}` : ''}`, undefined, options);
   }
 
   /**
@@ -412,7 +559,7 @@ export class HypersaveClient {
    * console.log(workProfile.facts);
    * ```
    */
-  async getProfile(options?: {
+  async getProfile(options?: RequestOptions & {
     userId?: string;
     /** Filter to specific section: identity, work, health, preference, etc. */
     section?: string;
@@ -422,7 +569,7 @@ export class HypersaveClient {
     if (options?.section) params.set('section', options.section);
 
     const query = params.toString();
-    return this.requestWithRetry<ProfileResult>('GET', `/v1/profile${query ? `?${query}` : ''}`);
+    return this.requestWithRetry<ProfileResult>('GET', `/v1/profile${query ? `?${query}` : ''}`, undefined, options);
   }
 
   /**
@@ -441,7 +588,7 @@ export class HypersaveClient {
    * const subgraph = await client.getGraph({ entity: 'John', depth: 2 });
    * ```
    */
-  async getGraph(options?: {
+  async getGraph(options?: RequestOptions & {
     userId?: string;
     /** Filter to triplets mentioning this entity */
     entity?: string;
@@ -463,7 +610,7 @@ export class HypersaveClient {
     if (options?.centerEntity) params.set('centerEntity', options.centerEntity);
 
     const query = params.toString();
-    return this.requestWithRetry<GraphResult>('GET', `/v1/graph${query ? `?${query}` : ''}`);
+    return this.requestWithRetry<GraphResult>('GET', `/v1/graph${query ? `?${query}` : ''}`, undefined, options);
   }
 
   /**
@@ -474,9 +621,13 @@ export class HypersaveClient {
    * await client.deleteMemory('doc-123');
    * ```
    */
-  async deleteMemory(id: string, options?: { userId?: string }): Promise<DeleteResult> {
+  async deleteMemory(id: string, options?: RequestOptions & { userId?: string }): Promise<DeleteResult> {
     if (!id) {
       throw new ValidationError('Memory ID is required');
+    }
+
+    if (typeof id !== 'string') {
+      throw new ValidationError('Memory ID must be a string');
     }
 
     return this.requestWithRetry<DeleteResult>(
@@ -498,12 +649,20 @@ export class HypersaveClient {
    * });
    * ```
    */
-  async remind(options: RemindOptions): Promise<RemindResult> {
+  async remind(options: RemindOptions, requestOptions?: RequestOptions): Promise<RemindResult> {
     if (!options.content) {
       throw new ValidationError('Reminder content is required');
     }
     if (!options.trigger) {
       throw new ValidationError('Reminder trigger is required');
+    }
+
+    if (typeof options.content !== 'string') {
+      throw new ValidationError('Reminder content must be a string');
+    }
+
+    if (typeof options.trigger !== 'string') {
+      throw new ValidationError('Reminder trigger must be a string');
     }
 
     return this.requestWithRetry<RemindResult>('POST', '/v1/remind', {
@@ -512,6 +671,9 @@ export class HypersaveClient {
       triggerType: options.triggerType,
       priority: options.priority,
       userId: options.userId,
+    }, {
+      ...requestOptions,
+      userId: requestOptions?.userId ?? options.userId,
     });
   }
 
@@ -524,12 +686,12 @@ export class HypersaveClient {
    * console.log(`${usage.usage.documentsIndexed} documents indexed`);
    * ```
    */
-  async getUsage(options?: { userId?: string }): Promise<UsageResult> {
+  async getUsage(options?: RequestOptions & { userId?: string }): Promise<UsageResult> {
     const params = new URLSearchParams();
     if (options?.userId) params.set('userId', options.userId);
 
     const query = params.toString();
-    return this.requestWithRetry<UsageResult>('GET', `/v1/usage${query ? `?${query}` : ''}`);
+    return this.requestWithRetry<UsageResult>('GET', `/v1/usage${query ? `?${query}` : ''}`, undefined, options);
   }
 
   // ============================================================================
@@ -548,7 +710,7 @@ export class HypersaveClient {
    * }
    * ```
    */
-  async getFacts(options?: FactsOptions): Promise<FactsResult> {
+  async getFacts(options?: FactsOptions & RequestOptions): Promise<FactsResult> {
     const params = new URLSearchParams();
     if (options?.category) params.set('category', options.category);
     if (options?.limit) params.set('limit', String(options.limit));
@@ -556,7 +718,7 @@ export class HypersaveClient {
     if (options?.userId) params.set('userId', options.userId);
 
     const query = params.toString();
-    return this.requestWithRetry<FactsResult>('GET', `/v1/facts${query ? `?${query}` : ''}`);
+    return this.requestWithRetry<FactsResult>('GET', `/v1/facts${query ? `?${query}` : ''}`, undefined, options);
   }
 
   /**
@@ -572,13 +734,13 @@ export class HypersaveClient {
    * }
    * ```
    */
-  async getRelations(options?: RelationsOptions): Promise<RelationsResult> {
+  async getRelations(options?: RelationsOptions & RequestOptions): Promise<RelationsResult> {
     const params = new URLSearchParams();
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.userId) params.set('userId', options.userId);
 
     const query = params.toString();
-    return this.requestWithRetry<RelationsResult>('GET', `/v1/relations${query ? `?${query}` : ''}`);
+    return this.requestWithRetry<RelationsResult>('GET', `/v1/relations${query ? `?${query}` : ''}`, undefined, options);
   }
 
   /**
@@ -591,8 +753,8 @@ export class HypersaveClient {
    * console.log(`Cache hit rate: ${metrics.cache.hitRate}`);
    * ```
    */
-  async getMetrics(): Promise<MetricsResult> {
-    return this.requestWithRetry<MetricsResult>('GET', '/v1/metrics');
+  async getMetrics(requestOptions?: RequestOptions): Promise<MetricsResult> {
+    return this.requestWithRetry<MetricsResult>('GET', '/v1/metrics', undefined, requestOptions);
   }
 
   /**
@@ -607,13 +769,13 @@ export class HypersaveClient {
    * }
    * ```
    */
-  async getEntities(options?: EntitiesOptions): Promise<EntitiesResult> {
+  async getEntities(options?: EntitiesOptions & RequestOptions): Promise<EntitiesResult> {
     const params = new URLSearchParams();
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.userId) params.set('userId', options.userId);
 
     const query = params.toString();
-    return this.requestWithRetry<EntitiesResult>('GET', `/v1/entities${query ? `?${query}` : ''}`);
+    return this.requestWithRetry<EntitiesResult>('GET', `/v1/entities${query ? `?${query}` : ''}`, undefined, options);
   }
 
   /**
@@ -630,12 +792,20 @@ export class HypersaveClient {
    * console.log(`Document ${result.documentId}: ${result.facts} facts, ${result.entities} entities`);
    * ```
    */
-  async ingest(options: IngestOptions): Promise<IngestResult> {
+  async ingest(options: IngestOptions, requestOptions?: RequestOptions): Promise<IngestResult> {
     if (!options.content) {
       throw new ValidationError('Content is required');
     }
     if (!options.title) {
       throw new ValidationError('Title is required');
+    }
+
+    if (typeof options.content !== 'string') {
+      throw new ValidationError('Content must be a string');
+    }
+
+    if (typeof options.title !== 'string') {
+      throw new ValidationError('Title must be a string');
     }
 
     return this.requestWithRetry<IngestResult>('POST', '/v1/ingest', {
@@ -646,6 +816,9 @@ export class HypersaveClient {
       sector: options.sector,
       metadata: options.metadata,
       userId: options.userId,
+    }, {
+      ...requestOptions,
+      userId: requestOptions?.userId ?? options.userId,
     });
   }
 
@@ -664,12 +837,12 @@ export class HypersaveClient {
    * }
    * ```
    */
-  async getSynapses(options?: { userId?: string }): Promise<SynapsesResult> {
+  async getSynapses(options?: RequestOptions & { userId?: string }): Promise<SynapsesResult> {
     const params = new URLSearchParams();
     if (options?.userId) params.set('userId', options.userId);
 
     const query = params.toString();
-    return this.requestWithRetry<SynapsesResult>('GET', `/v1/synapses${query ? `?${query}` : ''}`);
+    return this.requestWithRetry<SynapsesResult>('GET', `/v1/synapses${query ? `?${query}` : ''}`, undefined, options);
   }
 
   /**
@@ -681,10 +854,129 @@ export class HypersaveClient {
    * console.log(`New: ${result.newSynapses}, Updated: ${result.updatedSynapses}`);
    * ```
    */
-  async triggerLearning(options?: { lookbackDays?: number }): Promise<LearnResult> {
+  async triggerLearning(options?: { lookbackDays?: number } & RequestOptions): Promise<LearnResult> {
+    const lookbackDays = options?.lookbackDays ?? 30;
+
+    if (typeof lookbackDays !== 'number' || lookbackDays < 1 || lookbackDays > 365) {
+      throw new ValidationError('lookbackDays must be a number between 1 and 365');
+    }
+
     return this.requestWithRetry<LearnResult>('POST', '/v1/synapses/learn', {
-      lookbackDays: options?.lookbackDays || 30,
-    });
+      lookbackDays,
+    }, options);
+  }
+
+  // ============================================================================
+  // UTILITY METHODS
+  // ============================================================================
+
+  /**
+   * Wait for an async save operation to complete
+   *
+   * @example
+   * ```typescript
+   * const save = await client.save({ content: 'Long article...' });
+   * if (save.pendingId) {
+   *   const status = await client.waitForSave(save.pendingId, {
+   *     pollInterval: 1000,
+   *     maxWait: 60000
+   *   });
+   *   console.log(`Save completed with status: ${status.status}`);
+   * }
+   * ```
+   */
+  async waitForSave(
+    pendingId: string,
+    options?: {
+      /** Polling interval in ms (default: 1000) */
+      pollInterval?: number;
+      /** Maximum wait time in ms (default: 60000) */
+      maxWait?: number;
+      /** AbortSignal for cancellation */
+      signal?: AbortSignal;
+    }
+  ): Promise<SaveStatus> {
+    const pollInterval = options?.pollInterval ?? 1000;
+    const maxWait = options?.maxWait ?? 60000;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWait) {
+      if (options?.signal?.aborted) {
+        throw new TimeoutError(0, 'Polling was cancelled');
+      }
+
+      const status = await this.getSaveStatus(pendingId, { signal: options?.signal });
+
+      if (status.status === 'complete' || status.status === 'error') {
+        return status;
+      }
+
+      await this.sleep(pollInterval, options?.signal);
+    }
+
+    throw new TimeoutError(maxWait, `Save operation did not complete within ${maxWait}ms`);
+  }
+
+  /**
+   * Batch save multiple pieces of content
+   *
+   * @example
+   * ```typescript
+   * const results = await client.batchSave([
+   *   { content: 'Note 1' },
+   *   { content: 'Note 2' },
+   *   { content: 'Note 3' }
+   * ]);
+   * console.log(`${results.succeeded} saved, ${results.failed} failed`);
+   * ```
+   */
+  async batchSave(
+    items: SaveOptions[],
+    options?: {
+      /** Maximum concurrent saves (default: 5) */
+      concurrency?: number;
+      /** Continue on errors (default: true) */
+      continueOnError?: boolean;
+      /** AbortSignal for cancellation */
+      signal?: AbortSignal;
+    }
+  ): Promise<{
+    results: Array<{ success: boolean; result?: SaveResult; error?: Error }>;
+    succeeded: number;
+    failed: number;
+  }> {
+    const concurrency = options?.concurrency ?? 5;
+    const continueOnError = options?.continueOnError ?? true;
+    const results: Array<{ success: boolean; result?: SaveResult; error?: Error }> = [];
+
+    // Process in batches
+    for (let i = 0; i < items.length; i += concurrency) {
+      if (options?.signal?.aborted) {
+        throw new TimeoutError(0, 'Batch save was cancelled');
+      }
+
+      const batch = items.slice(i, i + concurrency);
+      const batchResults = await Promise.allSettled(
+        batch.map(item => this.save(item, { signal: options?.signal }))
+      );
+
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled') {
+          results.push({ success: true, result: result.value });
+        } else {
+          if (!continueOnError) {
+            throw result.reason;
+          }
+          results.push({ success: false, error: result.reason });
+        }
+      }
+    }
+
+    return {
+      results,
+      succeeded: results.filter(r => r.success).length,
+      failed: results.filter(r => !r.success).length,
+    };
   }
 
 }
