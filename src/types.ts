@@ -701,6 +701,605 @@ export interface LearnResult {
 }
 
 // ============================================================================
+// FORGET TYPES (GDPR)
+// ============================================================================
+
+export interface ForgetOptions {
+  /** Text to search for and forget */
+  query: string;
+  /** Reason for erasure (default: "GDPR erasure request") */
+  reason?: string;
+}
+
+export interface ForgetResult {
+  success: boolean;
+  /** Description of what was forgotten */
+  message?: string;
+  /** The search query used */
+  searchQuery?: string;
+  /** Counts of forgotten items */
+  forgotten?: {
+    total: number;
+    facts?: number;
+    documents?: number;
+    chunks?: number;
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface ForgetAllResult {
+  success: boolean;
+  /** Description of the erasure */
+  message?: string;
+  /** Type of erasure performed */
+  erasureType?: 'permanent' | 'soft_delete';
+  /** When the erasure occurred */
+  erasedAt?: string;
+  /** Counts of erased items by type */
+  counts?: Record<string, number>;
+  /** Total items erased */
+  total?: number;
+  /** Warning about data recovery */
+  warning?: string;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// EXPORT TYPES (GDPR)
+// ============================================================================
+
+export interface ExportResult {
+  success: boolean;
+  /** Description message */
+  message?: string;
+  /** All exported user data */
+  data?: Record<string, unknown>;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// BRAIN TYPES
+// ============================================================================
+
+export interface BrainConsolidateResult {
+  success: boolean;
+  /** Description message */
+  message?: string;
+  /** Number of items consolidated */
+  consolidated?: number;
+  /** Detailed result */
+  result?: Record<string, unknown>;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface BrainContextResult {
+  success: boolean;
+  /** User context information */
+  context?: {
+    userId: string;
+    timeOfDay: string;
+    dayOfWeek: string;
+    isWeekend: boolean;
+    inferredMode: string;
+    modeConfidence: number;
+    currentTask?: string;
+    currentFocus?: string;
+    recentTopics: string[];
+    boostFactors: Record<string, number>;
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface BrainRemindersResult {
+  success: boolean;
+  /** Number of reminders */
+  count?: number;
+  /** List of active reminders */
+  reminders?: Array<{
+    id?: string;
+    reminderContent: string;
+    triggerType: string;
+    triggerValue: string;
+    priority: number;
+    isActive: boolean;
+  }>;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface BrainSessionResult {
+  success: boolean;
+  /** Session ID */
+  sessionId?: string;
+  /** Session details */
+  session?: {
+    sessionId: string;
+    userId: string;
+    taskContext?: string;
+    maxItems?: number;
+    createdAt?: string;
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// FAST SEARCH TYPES
+// ============================================================================
+
+export interface FastSearchOptions {
+  /** The search query */
+  query: string;
+  /** Maximum results to return */
+  limit?: number;
+  /** User ID (overrides config default) */
+  userId?: string;
+}
+
+export interface FastSearchResult {
+  success: boolean;
+  /** Search results */
+  results?: Array<{
+    id: string;
+    content: string;
+    score: number;
+    type?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// REMINDER LIST TYPES
+// ============================================================================
+
+export interface RemindersListResult {
+  success: boolean;
+  /** Reminder groups */
+  reminders?: {
+    active: Array<{
+      id?: string;
+      content: string;
+      triggerType: string;
+      triggerValue: string;
+      priority: number;
+      isActive: boolean;
+      triggeredAt: string | null;
+      createdAt: string | null;
+    }>;
+    triggered?: Array<{
+      id?: string;
+      content: string;
+      triggerType: string;
+      triggerValue: string;
+      priority: number;
+      isActive: boolean;
+      triggeredAt: string | null;
+      createdAt: string | null;
+    }>;
+    total: number;
+  };
+  /** Proactive suggestions based on synapses */
+  suggestions?: Array<{
+    type: string;
+    content: string;
+    reason: string;
+    confidence: number;
+    priority: number;
+    category: string;
+  }>;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// WAYPOINT TYPES
+// ============================================================================
+
+export interface WaypointGraphResult {
+  success: boolean;
+  /** Pagination info */
+  pagination?: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+  /** Graph nodes (documents) */
+  nodes?: Array<{
+    id: string;
+    title?: string;
+    sector: string;
+    category: string;
+  }>;
+  /** Graph edges (waypoints) */
+  edges?: Array<{
+    source: string;
+    target: string;
+    weight: number;
+  }>;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface WaypointStatsResult {
+  success: boolean;
+  /** Waypoint statistics */
+  stats?: Record<string, unknown>;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// DOCUMENT MANAGEMENT TYPES
+// ============================================================================
+
+export interface DocumentDetailResult {
+  success: boolean;
+  /** Document details */
+  document?: {
+    id: string;
+    analysis?: Record<string, unknown>;
+    createdAt?: string;
+    salience?: number;
+    decayLambda?: number;
+    lastAccessedAt?: string;
+    accessCount?: number;
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface DocumentListResult {
+  success: boolean;
+  /** Total document count */
+  total?: number;
+  /** Whether more documents exist */
+  hasMore?: boolean;
+  /** Current offset */
+  offset?: number;
+  /** Current limit */
+  limit?: number;
+  /** Document list */
+  documents?: Array<{
+    id: string;
+    title?: string;
+    type?: string;
+    category?: string;
+    tags?: string[];
+    createdAt?: string | number;
+  }>;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// FORGET LOG TYPES
+// ============================================================================
+
+export interface ForgetLogResult {
+  success: boolean;
+  /** Audit log entries */
+  log?: Array<Record<string, unknown>>;
+  /** Number of log entries */
+  count?: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// MEMORY MANAGEMENT TYPES (pin, reinforce, penalize, schedule-forget)
+// ============================================================================
+
+export interface PinResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** The pinned/unpinned fact */
+  fact?: Record<string, unknown>;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface ReinforceResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** Memory ID */
+  id?: string;
+  /** Salience before reinforcement */
+  oldSalience?: number;
+  /** Salience after reinforcement */
+  newSalience?: number;
+  /** Gain applied */
+  gain?: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface PenalizeResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** Memory ID */
+  id?: string;
+  /** Salience before penalty */
+  oldSalience?: number;
+  /** Salience after penalty */
+  newSalience?: number;
+  /** Penalty applied */
+  penalty?: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface ScheduleForgetResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** Memory ID */
+  id?: string;
+  /** When the memory will be forgotten */
+  scheduledFor?: string;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// FACTS CLEANUP & CONTEST TYPES
+// ============================================================================
+
+export interface CleanupFactsOptions {
+  /** Remove duplicate keys, keep highest confidence (default: true) */
+  deduplicate?: boolean;
+  /** Remove facts attributed to third parties (default: true) */
+  removeAttributed?: boolean;
+  /** Remove facts below this confidence threshold (default: 0.3) */
+  minConfidence?: number;
+  /** If true, only report what would be deleted (default: true) */
+  dryRun?: boolean;
+}
+
+export interface CleanupFactsResult {
+  success: boolean;
+  /** Whether this was a dry run */
+  dryRun?: boolean;
+  /** Description message */
+  message?: string;
+  /** Cleanup summary */
+  summary?: {
+    totalFacts?: number;
+    totalFactsBefore?: number;
+    toDelete?: number;
+    deleted?: number;
+    remaining?: number;
+    unauthorized?: number;
+    notFound?: number;
+    byReason?: Record<string, number>;
+  };
+  /** Facts that would be or were deleted */
+  factsToDelete?: Array<{
+    id: string;
+    category?: string;
+    key?: string;
+    value?: string;
+    confidence?: number;
+    reason?: string;
+  }>;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface ContestFactResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** The contested fact */
+  fact?: Record<string, unknown> | null;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface ResolveContestResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** The resolved fact */
+  fact?: Record<string, unknown> | null;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// ORGANIZATION TYPES
+// ============================================================================
+
+export type OrgRole = 'owner' | 'admin' | 'member' | 'viewer';
+
+export interface OrgInfo {
+  id: string;
+  name: string;
+  slug: string;
+  plan?: string;
+  role?: OrgRole;
+  settings?: Record<string, unknown>;
+  createdAt?: string | number;
+}
+
+export interface OrgMember {
+  userId: string;
+  role: OrgRole;
+  joinedAt?: string | number;
+  invitedBy?: string;
+}
+
+export interface CreateOrgResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** Created org details */
+  data?: {
+    org: OrgInfo;
+    role: string;
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface ListOrgsResult {
+  success: boolean;
+  /** Organization list */
+  data?: {
+    organizations: OrgInfo[];
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface GetOrgResult {
+  success: boolean;
+  /** Org details with members */
+  data?: {
+    org: OrgInfo;
+    members: OrgMember[];
+    memberCount: number;
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface InviteMemberResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** Invited member details */
+  data?: {
+    userId: string;
+    role: OrgRole;
+  };
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface RemoveMemberResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// WEBHOOK TYPES
+// ============================================================================
+
+export type WebhookEventType =
+  | 'save.completed'
+  | 'save.failed'
+  | 'memory.forgotten'
+  | 'facts.extracted'
+  | 'facts.contested'
+  | 'reminder.triggered'
+  | string;
+
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  events: string[];
+  status?: string;
+  description?: string;
+  failureCount?: number;
+  lastDeliveryAt?: string | null;
+  createdAt?: string;
+}
+
+export interface CreateWebhookResult {
+  success: boolean;
+  /** Created endpoint details */
+  endpoint?: {
+    id: string;
+    url: string;
+    events: string[];
+    description?: string;
+  };
+  /** Signing secret (shown only once) */
+  secret?: string;
+  /** Confirmation message */
+  message?: string;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface ListWebhooksResult {
+  success: boolean;
+  /** Registered webhook endpoints */
+  endpoints?: WebhookEndpoint[];
+  /** Total count */
+  count?: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface DeleteWebhookResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** Error message if failed */
+  error?: string;
+}
+
+export interface TestWebhookResult {
+  success: boolean;
+  /** Confirmation message */
+  message?: string;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
+// AUDIT LOG TYPES
+// ============================================================================
+
+export interface AuditLogEntry {
+  id?: string;
+  userId?: string;
+  action?: string;
+  resourceType?: string;
+  resourceId?: string;
+  details?: Record<string, unknown>;
+  ip?: string;
+  timestamp?: string | number;
+}
+
+export interface AuditLogOptions {
+  /** Filter by action (e.g. 'save', 'delete', 'login') */
+  action?: string;
+  /** Filter by resource type (e.g. 'memory', 'api_key') */
+  resource?: string;
+  /** Start timestamp (ms since epoch) */
+  start?: number;
+  /** End timestamp (ms since epoch) */
+  end?: number;
+  /** Max records to return (default: 100, max: 1000) */
+  limit?: number;
+}
+
+export interface AuditLogResult {
+  success: boolean;
+  /** Audit log entries */
+  data?: AuditLogEntry[];
+  /** Total count */
+  count?: number;
+  /** Error message if failed */
+  error?: string;
+}
+
+// ============================================================================
 // API RESPONSE WRAPPER
 // ============================================================================
 

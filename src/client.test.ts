@@ -101,11 +101,10 @@ test('base URL trailing slash is normalized', () => {
 // ============================================================================
 
 test('HypersaveError has correct properties', () => {
-  const error = new HypersaveError('Test error', 'TEST_CODE', { foo: 'bar' });
+  const error = new HypersaveError('Test error', 500);
   assertEqual(error.message, 'Test error');
-  assertEqual(error.code, 'TEST_CODE');
+  assertEqual(error.statusCode, 500);
   assertEqual(error.name, 'HypersaveError');
-  assertTrue(error.details?.foo === 'bar');
 });
 
 test('AuthenticationError extends HypersaveError', () => {
@@ -121,7 +120,7 @@ test('ValidationError extends HypersaveError', () => {
 });
 
 test('TimeoutError extends HypersaveError', () => {
-  const error = new TimeoutError('Request timed out');
+  const error = new TimeoutError(30000, 'Request timed out');
   assertEqual(error.name, 'TimeoutError');
   assertTrue(error instanceof HypersaveError);
 });

@@ -92,6 +92,71 @@ export type {
   SynapsesResult,
   LearnResult,
 
+  // Forget (GDPR)
+  ForgetOptions,
+  ForgetResult,
+  ForgetAllResult,
+  ForgetLogResult,
+
+  // Export (GDPR)
+  ExportResult,
+
+  // Brain
+  BrainConsolidateResult,
+  BrainContextResult,
+  BrainRemindersResult,
+  BrainSessionResult,
+
+  // Fast Search
+  FastSearchOptions,
+  FastSearchResult,
+
+  // Reminders List
+  RemindersListResult,
+
+  // Waypoints
+  WaypointGraphResult,
+  WaypointStatsResult,
+
+  // Document Management
+  DocumentDetailResult,
+  DocumentListResult,
+
+  // Memory Management (pin, reinforce, penalize, schedule-forget)
+  PinResult,
+  ReinforceResult,
+  PenalizeResult,
+  ScheduleForgetResult,
+
+  // Facts Cleanup & Contest
+  CleanupFactsOptions,
+  CleanupFactsResult,
+  ContestFactResult,
+  ResolveContestResult,
+
+  // Organizations (enterprise)
+  OrgRole,
+  OrgInfo,
+  OrgMember,
+  CreateOrgResult,
+  ListOrgsResult,
+  GetOrgResult,
+  InviteMemberResult,
+  RemoveMemberResult,
+
+  // Webhooks
+  WebhookEventType,
+  WebhookEndpoint,
+  CreateWebhookResult,
+  ListWebhooksResult,
+  DeleteWebhookResult,
+  TestWebhookResult,
+
+  // Audit Logs
+  AuditLogEntry,
+  AuditLogOptions,
+  AuditLogResult,
+
   // Generic
   ApiResponse,
 } from './types.js';

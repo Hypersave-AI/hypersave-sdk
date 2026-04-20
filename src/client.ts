@@ -33,6 +33,41 @@ import {
   SynapsesResult,
   LearnResult,
   RequestOptions,
+  ForgetOptions,
+  ForgetResult,
+  ForgetAllResult,
+  ExportResult,
+  BrainConsolidateResult,
+  BrainContextResult,
+  BrainRemindersResult,
+  BrainSessionResult,
+  FastSearchOptions,
+  FastSearchResult,
+  RemindersListResult,
+  WaypointGraphResult,
+  WaypointStatsResult,
+  DocumentDetailResult,
+  DocumentListResult,
+  ForgetLogResult,
+  PinResult,
+  ReinforceResult,
+  PenalizeResult,
+  ScheduleForgetResult,
+  CleanupFactsOptions,
+  CleanupFactsResult,
+  ContestFactResult,
+  ResolveContestResult,
+  CreateOrgResult,
+  ListOrgsResult,
+  GetOrgResult,
+  InviteMemberResult,
+  RemoveMemberResult,
+  CreateWebhookResult,
+  ListWebhooksResult,
+  DeleteWebhookResult,
+  TestWebhookResult,
+  AuditLogOptions,
+  AuditLogResult,
 } from './types.js';
 
 import {
@@ -632,7 +667,7 @@ export class HypersaveClient {
 
     return this.requestWithRetry<DeleteResult>(
       'DELETE',
-      `/v1/memory/${encodeURIComponent(id)}`,
+      `/v1/memories/${encodeURIComponent(id)}`,
       undefined,
       options
     );
@@ -864,6 +899,919 @@ export class HypersaveClient {
     return this.requestWithRetry<LearnResult>('POST', '/v1/synapses/learn', {
       lookbackDays,
     }, options);
+  }
+
+  // ============================================================================
+  // FORGET METHODS (GDPR)
+  // ============================================================================
+
+  /**
+   * Forget memories matching a content query (GDPR right to be forgotten)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.forget({ query: 'sensitive information' });
+   * console.log(`Forgot ${result.forgotten?.total} items`);
+   * ```
+   */
+  async forget(options: ForgetOptions, requestOptions?: RequestOptions): Promise<ForgetResult> {
+    if (!options.query) {
+      throw new ValidationError('Query is required');
+    }
+
+    return this.requestWithRetry<ForgetResult>('POST', '/v1/forget', {
+      query: options.query,
+      reason: options.reason,
+    }, requestOptions);
+  }
+
+  /**
+   * Erase all user data (GDPR Article 17 - Right to Erasure)
+   *
+   * WARNING: This cannot be undone. Requires confirmation string.
+   *
+   * @example
+   * ```typescript
+   * const result = await client.forgetAll({ hardDelete: true });
+   * console.log(result.message);
+   * ```
+   */
+  async forgetAll(options?: {
+    /** Set to true for permanent deletion (default: soft delete) */
+    hardDelete?: boolean;
+    /** Reason for erasure */
+    reason?: string;
+  } & RequestOptions): Promise<ForgetAllResult> {
+    return this.requestWithRetry<ForgetAllResult>('POST', '/v1/forget/all', {
+      confirm: 'DELETE_ALL_MY_DATA',
+      hardDelete: options?.hardDelete ?? false,
+      reason: options?.reason,
+    }, options);
+  }
+
+  /**
+   * Get the forgetting audit log
+   *
+   * @example
+   * ```typescript
+   * const log = await client.getForgetLog({ limit: 20 });
+   * console.log(`${log.count} log entries`);
+   * ```
+   */
+  async getForgetLog(options?: { limit?: number } & RequestOptions): Promise<ForgetLogResult> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+
+    const query = params.toString();
+    return this.requestWithRetry<ForgetLogResult>('GET', `/v1/forget/log${query ? `?${query}` : ''}`, undefined, options);
+  }
+
+  // ============================================================================
+  // EXPORT METHODS (GDPR)
+  // ============================================================================
+
+  /**
+   * Export all user data in portable format (GDPR Article 20)
+   *
+   * @example
+   * ```typescript
+   * const exported = await client.exportData();
+   * console.log(JSON.stringify(exported.data));
+   * ```
+   */
+  async exportData(requestOptions?: RequestOptions): Promise<ExportResult> {
+    return this.requestWithRetry<ExportResult>('GET', '/v1/export', undefined, requestOptions);
+  }
+
+  // ============================================================================
+  // BRAIN METHODS
+  // ============================================================================
+
+  /**
+   * Run memory consolidation (merges duplicate facts)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.brainConsolidate();
+   * console.log(`Consolidated ${result.consolidated} items`);
+   * ```
+   */
+  async brainConsolidate(requestOptions?: RequestOptions): Promise<BrainConsolidateResult> {
+    return this.requestWithRetry<BrainConsolidateResult>('POST', '/v1/brain/consolidate', {}, requestOptions);
+  }
+
+  /**
+   * Get current user context (time, mode, focus, recent topics)
+   *
+   * @example
+   * ```typescript
+   * const ctx = await client.brainContext();
+   * console.log(`Mode: ${ctx.context?.inferredMode}`);
+   * ```
+   */
+  async brainContext(requestOptions?: RequestOptions): Promise<BrainContextResult> {
+    return this.requestWithRetry<BrainContextResult>('GET', '/v1/brain/context', undefined, requestOptions);
+  }
+
+  /**
+   * Get active brain reminders (prospective memory)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.brainReminders();
+   * console.log(`${result.count} active reminders`);
+   * ```
+   */
+  async brainReminders(requestOptions?: RequestOptions): Promise<BrainRemindersResult> {
+    return this.requestWithRetry<BrainRemindersResult>('GET', '/v1/brain/reminders', undefined, requestOptions);
+  }
+
+  /**
+   * Start a working memory session
+   *
+   * @example
+   * ```typescript
+   * const session = await client.brainSessionStart({ taskContext: 'Code review' });
+   * console.log(`Session: ${session.sessionId}`);
+   * ```
+   */
+  async brainSessionStart(options?: {
+    /** Context for the working memory session */
+    taskContext?: string;
+  } & RequestOptions): Promise<BrainSessionResult> {
+    return this.requestWithRetry<BrainSessionResult>('POST', '/v1/brain/session/start', {
+      taskContext: options?.taskContext,
+    }, options);
+  }
+
+  /**
+   * Get current working memory session
+   *
+   * @example
+   * ```typescript
+   * const session = await client.brainSessionCurrent();
+   * console.log(session.session);
+   * ```
+   */
+  async brainSessionCurrent(requestOptions?: RequestOptions): Promise<BrainSessionResult> {
+    return this.requestWithRetry<BrainSessionResult>('GET', '/v1/brain/session/current', undefined, requestOptions);
+  }
+
+  /**
+   * Detect contradictions in user's stored facts
+   *
+   * @example
+   * ```typescript
+   * const result = await client.detectContradictions();
+   * if (result.hasContradictions) {
+   *   for (const c of result.contradictions) {
+   *     console.log(`${c.key}: "${c.previousValue}" -> "${c.currentValue}"`);
+   *   }
+   * }
+   * ```
+   */
+  async detectContradictions(options?: {
+    /** Check contradiction for a specific fact key */
+    factKey?: string;
+    /** Fact value to check against */
+    factValue?: string;
+    /** Maximum contradictions to return */
+    limit?: number;
+  } & RequestOptions): Promise<{
+    success: boolean;
+    hasContradictions: boolean;
+    count: number;
+    contradictions: Array<{
+      key: string;
+      currentValue: string;
+      previousValue: string;
+      category?: string;
+    }>;
+    error?: string;
+  }> {
+    return this.requestWithRetry('POST', '/v1/brain/contradictions/detect', {
+      factKey: options?.factKey,
+      factValue: options?.factValue,
+      limit: options?.limit,
+    }, options);
+  }
+
+  // ============================================================================
+  // ANALYZE METHODS
+  // ============================================================================
+
+  /**
+   * Analyze content (auto-detects text, URL, or YouTube)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.analyze({ input: 'https://example.com/article' });
+   * console.log(`${result.title} - ${result.category}`);
+   * console.log(`Tags: ${result.tags?.join(', ')}`);
+   * ```
+   */
+  async analyze(options: { input: string; includeRawContent?: boolean }, requestOptions?: RequestOptions): Promise<{
+    success: boolean;
+    id: string;
+    type?: string;
+    title?: string;
+    summary?: string;
+    category?: string;
+    tags?: string[];
+    sector?: { primary: string; scores: Record<string, number> };
+    entities?: Array<{ name: string; type: string }>;
+    keyPoints?: string[];
+    error?: string;
+  }> {
+    if (!options.input) {
+      throw new ValidationError('Input is required');
+    }
+
+    return this.requestWithRetry('POST', '/v1/analyze', {
+      input: options.input,
+      options: options.includeRawContent ? { includeRawContent: true } : undefined,
+    }, requestOptions);
+  }
+
+  // ============================================================================
+  // FAST SEARCH METHODS
+  // ============================================================================
+
+  /**
+   * Hypersave-Fast: sub-second hybrid search (vector + keyword)
+   *
+   * @example
+   * ```typescript
+   * const results = await client.fastSearch({ query: 'machine learning', limit: 10 });
+   * for (const r of results.results ?? []) {
+   *   console.log(`[${r.score}] ${r.content}`);
+   * }
+   * ```
+   */
+  async fastSearch(options: FastSearchOptions, requestOptions?: RequestOptions): Promise<FastSearchResult> {
+    if (!options.query) {
+      throw new ValidationError('Query is required');
+    }
+
+    return this.requestWithRetry<FastSearchResult>('POST', '/v1/fast/search', {
+      query: options.query,
+      limit: options.limit,
+      userId: options.userId,
+    }, {
+      ...requestOptions,
+      userId: requestOptions?.userId ?? options.userId,
+    });
+  }
+
+  // ============================================================================
+  // REMINDER LIST METHODS
+  // ============================================================================
+
+  /**
+   * Get all reminders for the user
+   *
+   * @example
+   * ```typescript
+   * const result = await client.getReminders();
+   * console.log(`${result.reminders?.total} active reminders`);
+   * for (const r of result.reminders?.active ?? []) {
+   *   console.log(`${r.content} (trigger: ${r.triggerValue})`);
+   * }
+   * ```
+   */
+  async getReminders(options?: {
+    /** Include already-triggered reminders */
+    includeTriggered?: boolean;
+    /** Include proactive suggestions (default: true) */
+    includeSuggestions?: boolean;
+  } & RequestOptions): Promise<RemindersListResult> {
+    const params = new URLSearchParams();
+    if (options?.includeTriggered) params.set('includeTriggered', 'true');
+    if (options?.includeSuggestions === false) params.set('includeSuggestions', 'false');
+    if (options?.userId) params.set('userId', options.userId);
+
+    const query = params.toString();
+    return this.requestWithRetry<RemindersListResult>('GET', `/v1/remind${query ? `?${query}` : ''}`, undefined, options);
+  }
+
+  // ============================================================================
+  // WAYPOINT METHODS
+  // ============================================================================
+
+  /**
+   * Get the waypoint graph (document connections)
+   *
+   * @example
+   * ```typescript
+   * const graph = await client.getWaypointGraph();
+   * console.log(`${graph.nodes?.length} nodes, ${graph.edges?.length} edges`);
+   * ```
+   */
+  async getWaypointGraph(options?: {
+    /** Maximum items to return (default: 500) */
+    limit?: number;
+    /** Offset for pagination */
+    offset?: number;
+  } & RequestOptions): Promise<WaypointGraphResult> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+
+    const query = params.toString();
+    return this.requestWithRetry<WaypointGraphResult>('GET', `/v1/waypoints/graph${query ? `?${query}` : ''}`, undefined, options);
+  }
+
+  /**
+   * Get waypoint statistics
+   *
+   * @example
+   * ```typescript
+   * const stats = await client.getWaypointStats();
+   * console.log(stats.stats);
+   * ```
+   */
+  async getWaypointStats(requestOptions?: RequestOptions): Promise<WaypointStatsResult> {
+    return this.requestWithRetry<WaypointStatsResult>('GET', '/v1/waypoints/stats', undefined, requestOptions);
+  }
+
+  /**
+   * Rebuild waypoint connections between recent documents
+   *
+   * @example
+   * ```typescript
+   * const result = await client.rebuildWaypoints({ threshold: 0.8, limit: 50 });
+   * console.log(`Processed ${result.documentsProcessed} docs, created ${result.waypointsCreated} waypoints`);
+   * ```
+   */
+  async rebuildWaypoints(options?: {
+    /** Similarity threshold (0-1, default: 0.75) */
+    threshold?: number;
+    /** Maximum documents to process (default: 50, max: 100) */
+    limit?: number;
+  } & RequestOptions): Promise<{
+    success: boolean;
+    documentsProcessed: number;
+    waypointsCreated: number;
+    error?: string;
+  }> {
+    return this.requestWithRetry('POST', '/v1/waypoints/rebuild', {
+      threshold: options?.threshold,
+      limit: options?.limit,
+    }, options);
+  }
+
+  // ============================================================================
+  // DOCUMENT MANAGEMENT METHODS
+  // ============================================================================
+
+  /**
+   * Get a document by ID
+   *
+   * @example
+   * ```typescript
+   * const doc = await client.getDocument('doc-123');
+   * console.log(doc.document?.analysis);
+   * ```
+   */
+  async getDocument(id: string, requestOptions?: RequestOptions): Promise<DocumentDetailResult> {
+    if (!id) {
+      throw new ValidationError('Document ID is required');
+    }
+
+    return this.requestWithRetry<DocumentDetailResult>(
+      'GET',
+      `/v1/documents/${encodeURIComponent(id)}`,
+      undefined,
+      requestOptions
+    );
+  }
+
+  /**
+   * List documents with pagination
+   *
+   * @example
+   * ```typescript
+   * const docs = await client.getDocuments({ limit: 20 });
+   * console.log(`${docs.total} total, showing ${docs.documents?.length}`);
+   * ```
+   */
+  async getDocuments(options?: {
+    /** Maximum documents to return (default: 50, max: 100) */
+    limit?: number;
+    /** Offset for pagination */
+    offset?: number;
+  } & RequestOptions): Promise<DocumentListResult> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+
+    const query = params.toString();
+    return this.requestWithRetry<DocumentListResult>('GET', `/v1/documents${query ? `?${query}` : ''}`, undefined, options);
+  }
+
+  /**
+   * Delete a document by ID
+   *
+   * @example
+   * ```typescript
+   * await client.deleteDocument('doc-123');
+   * ```
+   */
+  async deleteDocument(id: string, requestOptions?: RequestOptions): Promise<DeleteResult> {
+    if (!id) {
+      throw new ValidationError('Document ID is required');
+    }
+
+    return this.requestWithRetry<DeleteResult>(
+      'DELETE',
+      `/v1/documents/${encodeURIComponent(id)}`,
+      undefined,
+      requestOptions
+    );
+  }
+
+  // ============================================================================
+  // MEMORY MANAGEMENT METHODS (pin, reinforce, penalize, schedule-forget)
+  // ============================================================================
+
+  /**
+   * Forget a specific memory by ID (GDPR-compliant soft deletion)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.forgetMemory('doc-123', { reason: 'User request' });
+   * console.log(result.message); // 'Memory forgotten'
+   * ```
+   */
+  async forgetMemory(id: string, options?: {
+    /** Whether to cascade-delete related chunks and facts (default: true) */
+    cascade?: boolean;
+    /** Reason for the audit log */
+    reason?: string;
+  } & RequestOptions): Promise<DeleteResult> {
+    if (!id) {
+      throw new ValidationError('Memory ID is required');
+    }
+
+    return this.requestWithRetry<DeleteResult>(
+      'DELETE',
+      `/v1/memories/${encodeURIComponent(id)}`,
+      {
+        cascade: options?.cascade,
+        reason: options?.reason,
+      },
+      options,
+    );
+  }
+
+  /**
+   * Pin a memory so it never decays (salience stays at 1.0)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.pinMemory('fact-123');
+   * console.log(result.message); // 'Memory pinned'
+   * ```
+   */
+  async pinMemory(id: string, requestOptions?: RequestOptions): Promise<PinResult> {
+    if (!id) {
+      throw new ValidationError('Memory ID is required');
+    }
+
+    return this.requestWithRetry<PinResult>(
+      'POST',
+      `/v1/memories/${encodeURIComponent(id)}/pin`,
+      {},
+      requestOptions,
+    );
+  }
+
+  /**
+   * Unpin a memory so it decays normally again
+   *
+   * @example
+   * ```typescript
+   * const result = await client.unpinMemory('fact-123');
+   * console.log(result.message); // 'Memory unpinned'
+   * ```
+   */
+  async unpinMemory(id: string, requestOptions?: RequestOptions): Promise<PinResult> {
+    if (!id) {
+      throw new ValidationError('Memory ID is required');
+    }
+
+    return this.requestWithRetry<PinResult>(
+      'POST',
+      `/v1/memories/${encodeURIComponent(id)}/unpin`,
+      {},
+      requestOptions,
+    );
+  }
+
+  /**
+   * Reinforce a memory's salience (mark as important)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.reinforceMemory('fact-123', 0.3);
+   * console.log(`Salience: ${result.oldSalience} -> ${result.newSalience}`);
+   * ```
+   */
+  async reinforceMemory(id: string, gain?: number, requestOptions?: RequestOptions): Promise<ReinforceResult> {
+    if (!id) {
+      throw new ValidationError('Memory ID is required');
+    }
+
+    return this.requestWithRetry<ReinforceResult>(
+      'POST',
+      `/v1/memories/${encodeURIComponent(id)}/reinforce`,
+      { gain },
+      requestOptions,
+    );
+  }
+
+  /**
+   * Penalize a memory's salience (mark as less important)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.penalizeMemory('fact-123', 0.2);
+   * console.log(`Salience: ${result.oldSalience} -> ${result.newSalience}`);
+   * ```
+   */
+  async penalizeMemory(id: string, amount?: number, requestOptions?: RequestOptions): Promise<PenalizeResult> {
+    if (!id) {
+      throw new ValidationError('Memory ID is required');
+    }
+
+    return this.requestWithRetry<PenalizeResult>(
+      'POST',
+      `/v1/memories/${encodeURIComponent(id)}/penalize`,
+      { amount },
+      requestOptions,
+    );
+  }
+
+  /**
+   * Schedule a memory to be automatically forgotten at a future date
+   *
+   * @example
+   * ```typescript
+   * const result = await client.scheduleForget('doc-123', '2025-01-01T00:00:00Z', 'Temporary data');
+   * console.log(`Will forget at: ${result.scheduledFor}`);
+   * ```
+   */
+  async scheduleForget(id: string, forgetAt: string | Date, reason?: string, requestOptions?: RequestOptions): Promise<ScheduleForgetResult> {
+    if (!id) {
+      throw new ValidationError('Memory ID is required');
+    }
+    if (!forgetAt) {
+      throw new ValidationError('forgetAt is required');
+    }
+
+    const forgetAtStr = forgetAt instanceof Date ? forgetAt.toISOString() : forgetAt;
+
+    return this.requestWithRetry<ScheduleForgetResult>(
+      'POST',
+      `/v1/memories/${encodeURIComponent(id)}/schedule-forget`,
+      { forgetAt: forgetAtStr, reason },
+      requestOptions,
+    );
+  }
+
+  // ============================================================================
+  // FACTS MANAGEMENT METHODS (cleanup, contest)
+  // ============================================================================
+
+  /**
+   * Clean up duplicate and problematic facts
+   *
+   * @example
+   * ```typescript
+   * // Dry run first to see what would be deleted
+   * const preview = await client.cleanupFacts({ dryRun: true });
+   * console.log(`Would delete ${preview.summary?.toDelete} facts`);
+   *
+   * // Then actually delete
+   * const result = await client.cleanupFacts({ dryRun: false });
+   * console.log(`Deleted ${result.summary?.deleted} facts`);
+   * ```
+   */
+  async cleanupFacts(options?: CleanupFactsOptions & RequestOptions): Promise<CleanupFactsResult> {
+    return this.requestWithRetry<CleanupFactsResult>('POST', '/v1/facts/cleanup', {
+      deduplicate: options?.deduplicate,
+      removeAttributed: options?.removeAttributed,
+      minConfidence: options?.minConfidence,
+      dryRun: options?.dryRun,
+    }, options);
+  }
+
+  /**
+   * Contest a fact (mark as disputed)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.contestFact('fact-123', 'This is outdated');
+   * console.log(result.message); // 'Fact contested successfully'
+   * ```
+   */
+  async contestFact(id: string, reason: string, conflictingFactId?: string, requestOptions?: RequestOptions): Promise<ContestFactResult> {
+    if (!id) {
+      throw new ValidationError('Fact ID is required');
+    }
+    if (!reason) {
+      throw new ValidationError('Reason is required');
+    }
+
+    return this.requestWithRetry<ContestFactResult>(
+      'POST',
+      `/v1/facts/${encodeURIComponent(id)}/contest`,
+      { reason, conflictingFactId },
+      requestOptions,
+    );
+  }
+
+  /**
+   * Resolve a contested fact (clear disputed status)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.resolveContest('fact-123');
+   * console.log(result.message); // 'Contest resolved successfully'
+   * ```
+   */
+  async resolveContest(id: string, requestOptions?: RequestOptions): Promise<ResolveContestResult> {
+    if (!id) {
+      throw new ValidationError('Fact ID is required');
+    }
+
+    return this.requestWithRetry<ResolveContestResult>(
+      'POST',
+      `/v1/facts/${encodeURIComponent(id)}/resolve-contest`,
+      {},
+      requestOptions,
+    );
+  }
+
+  // ============================================================================
+  // ORGANIZATION METHODS (enterprise multi-tenancy)
+  // ============================================================================
+
+  /**
+   * Create a new organization
+   *
+   * @example
+   * ```typescript
+   * const result = await client.createOrg('Acme Inc', 'acme-inc');
+   * console.log(`Org created: ${result.data?.org.id}`);
+   * ```
+   */
+  async createOrg(name: string, slug: string, requestOptions?: RequestOptions): Promise<CreateOrgResult> {
+    if (!name) {
+      throw new ValidationError('Organization name is required');
+    }
+    if (!slug) {
+      throw new ValidationError('Organization slug is required');
+    }
+
+    return this.requestWithRetry<CreateOrgResult>('POST', '/v1/org', {
+      name,
+      slug,
+    }, requestOptions);
+  }
+
+  /**
+   * List organizations the current user belongs to
+   *
+   * @example
+   * ```typescript
+   * const result = await client.getOrgs();
+   * for (const org of result.data?.organizations ?? []) {
+   *   console.log(`${org.name} (${org.role})`);
+   * }
+   * ```
+   */
+  async getOrgs(requestOptions?: RequestOptions): Promise<ListOrgsResult> {
+    return this.requestWithRetry<ListOrgsResult>('GET', '/v1/org', undefined, requestOptions);
+  }
+
+  /**
+   * Get organization details including members
+   *
+   * @example
+   * ```typescript
+   * const result = await client.getOrg('org-123');
+   * console.log(`${result.data?.org.name}: ${result.data?.memberCount} members`);
+   * ```
+   */
+  async getOrg(orgId: string, requestOptions?: RequestOptions): Promise<GetOrgResult> {
+    if (!orgId) {
+      throw new ValidationError('Organization ID is required');
+    }
+
+    return this.requestWithRetry<GetOrgResult>(
+      'GET',
+      `/v1/org/${encodeURIComponent(orgId)}`,
+      undefined,
+      requestOptions,
+    );
+  }
+
+  /**
+   * Invite a member to an organization
+   *
+   * @example
+   * ```typescript
+   * const result = await client.inviteMember('org-123', 'user-456', 'member');
+   * console.log(result.message); // 'Member added with role "member"'
+   * ```
+   */
+  async inviteMember(orgId: string, userId: string, role: 'admin' | 'member' | 'viewer', requestOptions?: RequestOptions): Promise<InviteMemberResult> {
+    if (!orgId) {
+      throw new ValidationError('Organization ID is required');
+    }
+    if (!userId) {
+      throw new ValidationError('User ID is required');
+    }
+    if (!role) {
+      throw new ValidationError('Role is required');
+    }
+
+    return this.requestWithRetry<InviteMemberResult>(
+      'POST',
+      `/v1/org/${encodeURIComponent(orgId)}/members`,
+      { userId, role },
+      requestOptions,
+    );
+  }
+
+  /**
+   * Remove a member from an organization
+   *
+   * @example
+   * ```typescript
+   * await client.removeMember('org-123', 'user-456');
+   * ```
+   */
+  async removeMember(orgId: string, memberId: string, requestOptions?: RequestOptions): Promise<RemoveMemberResult> {
+    if (!orgId) {
+      throw new ValidationError('Organization ID is required');
+    }
+    if (!memberId) {
+      throw new ValidationError('Member ID is required');
+    }
+
+    return this.requestWithRetry<RemoveMemberResult>(
+      'DELETE',
+      `/v1/org/${encodeURIComponent(orgId)}/members/${encodeURIComponent(memberId)}`,
+      undefined,
+      requestOptions,
+    );
+  }
+
+  // ============================================================================
+  // WEBHOOK METHODS
+  // ============================================================================
+
+  /**
+   * Register a new webhook endpoint
+   *
+   * @example
+   * ```typescript
+   * const result = await client.createWebhook('https://example.com/webhook', ['save.completed', 'memory.forgotten']);
+   * console.log(`Webhook ID: ${result.endpoint?.id}`);
+   * console.log(`Secret: ${result.secret}`); // Store securely, shown only once
+   * ```
+   */
+  async createWebhook(url: string, events: string[], description?: string, requestOptions?: RequestOptions): Promise<CreateWebhookResult> {
+    if (!url) {
+      throw new ValidationError('Webhook URL is required');
+    }
+    if (!events || events.length === 0) {
+      throw new ValidationError('At least one event type is required');
+    }
+
+    return this.requestWithRetry<CreateWebhookResult>('POST', '/v1/webhooks', {
+      url,
+      events,
+      description,
+    }, requestOptions);
+  }
+
+  /**
+   * List registered webhook endpoints
+   *
+   * @example
+   * ```typescript
+   * const result = await client.listWebhooks();
+   * for (const ep of result.endpoints ?? []) {
+   *   console.log(`${ep.url} -> ${ep.events.join(', ')}`);
+   * }
+   * ```
+   */
+  async listWebhooks(requestOptions?: RequestOptions): Promise<ListWebhooksResult> {
+    return this.requestWithRetry<ListWebhooksResult>('GET', '/v1/webhooks', undefined, requestOptions);
+  }
+
+  /**
+   * Delete a webhook endpoint
+   *
+   * @example
+   * ```typescript
+   * await client.deleteWebhook('webhook-123');
+   * ```
+   */
+  async deleteWebhook(id: string, requestOptions?: RequestOptions): Promise<DeleteWebhookResult> {
+    if (!id) {
+      throw new ValidationError('Webhook ID is required');
+    }
+
+    return this.requestWithRetry<DeleteWebhookResult>(
+      'DELETE',
+      `/v1/webhooks/${encodeURIComponent(id)}`,
+      undefined,
+      requestOptions,
+    );
+  }
+
+  /**
+   * Send a test event to a webhook endpoint
+   *
+   * @example
+   * ```typescript
+   * const result = await client.testWebhook('webhook-123');
+   * console.log(result.message);
+   * ```
+   */
+  async testWebhook(id: string, requestOptions?: RequestOptions): Promise<TestWebhookResult> {
+    if (!id) {
+      throw new ValidationError('Webhook ID is required');
+    }
+
+    return this.requestWithRetry<TestWebhookResult>(
+      'POST',
+      `/v1/webhooks/${encodeURIComponent(id)}/test`,
+      {},
+      requestOptions,
+    );
+  }
+
+  // ============================================================================
+  // AUDIT LOG METHODS (SOC 2 / HIPAA compliance)
+  // ============================================================================
+
+  /**
+   * Get audit logs for the current user
+   *
+   * @example
+   * ```typescript
+   * const result = await client.getAuditLogs({ action: 'delete', limit: 50 });
+   * for (const entry of result.data ?? []) {
+   *   console.log(`${entry.action} on ${entry.resourceType}/${entry.resourceId}`);
+   * }
+   * ```
+   */
+  async getAuditLogs(options?: AuditLogOptions & RequestOptions): Promise<AuditLogResult> {
+    const params = new URLSearchParams();
+    if (options?.action) params.set('action', options.action);
+    if (options?.resource) params.set('resource', options.resource);
+    if (options?.start) params.set('start', String(options.start));
+    if (options?.end) params.set('end', String(options.end));
+    if (options?.limit) params.set('limit', String(options.limit));
+
+    const query = params.toString();
+    return this.requestWithRetry<AuditLogResult>(
+      'GET',
+      `/v1/audit${query ? `?${query}` : ''}`,
+      undefined,
+      options,
+    );
+  }
+
+  /**
+   * Export audit logs as JSON or CSV
+   *
+   * Note: CSV export returns raw text, not JSON. For CSV, use the raw fetch
+   * approach or call this method which returns the JSON-wrapped response.
+   *
+   * @example
+   * ```typescript
+   * const result = await client.exportAuditLogs('json');
+   * ```
+   */
+  async exportAuditLogs(format?: 'json' | 'csv', dateRange?: { start: number; end: number }, requestOptions?: RequestOptions): Promise<ExportResult> {
+    const params = new URLSearchParams();
+    if (format) params.set('format', format);
+    if (dateRange?.start) params.set('start', String(dateRange.start));
+    if (dateRange?.end) params.set('end', String(dateRange.end));
+
+    const query = params.toString();
+    return this.requestWithRetry<ExportResult>(
+      'GET',
+      `/v1/audit/export${query ? `?${query}` : ''}`,
+      undefined,
+      requestOptions,
+    );
   }
 
   // ============================================================================

@@ -1,8 +1,11 @@
+"use strict";
 /**
  * Hypersave SDK Client
  * Main client class for interacting with the Hypersave API
  */
-import { HypersaveError, AuthenticationError, ValidationError, TimeoutError, NetworkError, ParseError, NotFoundError, RateLimitError, ServerError, createErrorFromStatus, } from './errors.js';
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.HypersaveClient = void 0;
+const errors_js_1 = require("./errors.js");
 const DEFAULT_BASE_URL = 'https://api.hypersave.io';
 const DEFAULT_TIMEOUT = 30000;
 const DEFAULT_MAX_RETRIES = 3;
@@ -29,7 +32,7 @@ const MAX_JITTER_MS = 200;
  * controller.abort(); // Cancel the request
  * ```
  */
-export class HypersaveClient {
+class HypersaveClient {
     apiKey;
     baseUrl;
     timeout;
@@ -40,10 +43,10 @@ export class HypersaveClient {
     activeRequests = new Map();
     constructor(config) {
         if (!config.apiKey) {
-            throw new AuthenticationError('API key is required');
+            throw new errors_js_1.AuthenticationError('API key is required');
         }
         if (config.apiKey.length < 10) {
-            throw new ValidationError('API key appears to be invalid (too short)');
+            throw new errors_js_1.ValidationError('API key appears to be invalid (too short)');
         }
         this.apiKey = config.apiKey;
         this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
@@ -88,24 +91,24 @@ export class HypersaveClient {
      */
     isRetryable(error) {
         // Don't retry client errors (4xx except 429)
-        if (error instanceof ValidationError ||
-            error instanceof AuthenticationError ||
-            error instanceof NotFoundError ||
-            error instanceof ParseError) {
+        if (error instanceof errors_js_1.ValidationError ||
+            error instanceof errors_js_1.AuthenticationError ||
+            error instanceof errors_js_1.NotFoundError ||
+            error instanceof errors_js_1.ParseError) {
             return false;
         }
         // Retry on rate limit, network, server, and timeout errors
-        return (error instanceof RateLimitError ||
-            error instanceof NetworkError ||
-            error instanceof ServerError ||
-            error instanceof TimeoutError);
+        return (error instanceof errors_js_1.RateLimitError ||
+            error instanceof errors_js_1.NetworkError ||
+            error instanceof errors_js_1.ServerError ||
+            error instanceof errors_js_1.TimeoutError);
     }
     /**
      * Calculate backoff delay for retry attempt
      */
     calculateBackoff(attempt, error) {
         // For rate limit errors, use server-provided retry-after if available
-        if (error instanceof RateLimitError && error.retryAfter) {
+        if (error instanceof errors_js_1.RateLimitError && error.retryAfter) {
             return error.retryAfter * 1000;
         }
         // Exponential backoff with jitter
@@ -126,7 +129,7 @@ export class HypersaveClient {
         if (options?.signal) {
             if (options.signal.aborted) {
                 this.activeRequests.delete(requestId);
-                throw new TimeoutError(0, 'Request was cancelled before it started');
+                throw new errors_js_1.TimeoutError(0, 'Request was cancelled before it started');
             }
             options.signal.addEventListener('abort', () => controller.abort(), { once: true });
         }
@@ -156,15 +159,15 @@ export class HypersaveClient {
             if (!contentType || !contentType.includes('application/json')) {
                 const text = await response.text();
                 if (!response.ok) {
-                    throw createErrorFromStatus(response.status, text || 'Request failed');
+                    throw (0, errors_js_1.createErrorFromStatus)(response.status, text || 'Request failed');
                 }
-                throw new ParseError('Expected JSON response', text);
+                throw new errors_js_1.ParseError('Expected JSON response', text);
             }
             const data = await response.json();
             // Handle API-level errors
             if (!response.ok || data.success === false) {
                 const errorMessage = data.error || data.message || 'Request failed';
-                throw createErrorFromStatus(response.status, errorMessage, data.details);
+                throw (0, errors_js_1.createErrorFromStatus)(response.status, errorMessage, data.details);
             }
             return data;
         }
@@ -177,24 +180,24 @@ export class HypersaveClient {
             // Handle abort - distinguish between user cancellation and timeout
             if (hasName(error) && error.name === 'AbortError') {
                 if (options?.signal?.aborted) {
-                    throw new TimeoutError(0, 'Request was cancelled');
+                    throw new errors_js_1.TimeoutError(0, 'Request was cancelled');
                 }
-                throw new TimeoutError(requestTimeout);
+                throw new errors_js_1.TimeoutError(requestTimeout);
             }
             // Handle network errors
             if (hasName(error) &&
                 error.name === 'TypeError' &&
                 isError(error) &&
                 error.message.includes('fetch')) {
-                throw new NetworkError('Failed to connect to Hypersave API', error);
+                throw new errors_js_1.NetworkError('Failed to connect to Hypersave API', error);
             }
             // Re-throw Hypersave errors as-is
-            if (error instanceof HypersaveError) {
+            if (error instanceof errors_js_1.HypersaveError) {
                 throw error;
             }
             // Wrap unknown errors
             const errorMessage = isError(error) ? error.message : 'Unknown error';
-            throw new HypersaveError(errorMessage, undefined, error instanceof Error ? error : undefined);
+            throw new errors_js_1.HypersaveError(errorMessage, undefined, error instanceof Error ? error : undefined);
         }
     }
     /**
@@ -203,13 +206,13 @@ export class HypersaveClient {
     sleep(ms, signal) {
         return new Promise((resolve, reject) => {
             if (signal?.aborted) {
-                reject(new TimeoutError(0, 'Request was cancelled'));
+                reject(new errors_js_1.TimeoutError(0, 'Request was cancelled'));
                 return;
             }
             const timeoutId = setTimeout(resolve, ms);
             signal?.addEventListener('abort', () => {
                 clearTimeout(timeoutId);
-                reject(new TimeoutError(0, 'Request was cancelled'));
+                reject(new errors_js_1.TimeoutError(0, 'Request was cancelled'));
             }, { once: true });
         });
     }
@@ -275,10 +278,10 @@ export class HypersaveClient {
      */
     async save(options, requestOptions) {
         if (!options.content) {
-            throw new ValidationError('Content is required');
+            throw new errors_js_1.ValidationError('Content is required');
         }
         if (typeof options.content !== 'string') {
-            throw new ValidationError('Content must be a string');
+            throw new errors_js_1.ValidationError('Content must be a string');
         }
         return this.requestWithRetry('POST', '/v1/save', {
             content: options.content,
@@ -318,10 +321,10 @@ export class HypersaveClient {
      */
     async getSaveStatus(pendingId, requestOptions) {
         if (!pendingId) {
-            throw new ValidationError('Pending ID is required');
+            throw new errors_js_1.ValidationError('Pending ID is required');
         }
         if (typeof pendingId !== 'string') {
-            throw new ValidationError('Pending ID must be a string');
+            throw new errors_js_1.ValidationError('Pending ID must be a string');
         }
         return this.requestWithRetry('GET', `/v1/save/status/${encodeURIComponent(pendingId)}`, undefined, requestOptions);
     }
@@ -342,13 +345,13 @@ export class HypersaveClient {
      */
     async ask(query, options) {
         if (!query) {
-            throw new ValidationError('Query is required');
+            throw new errors_js_1.ValidationError('Query is required');
         }
         if (typeof query !== 'string') {
-            throw new ValidationError('Query must be a string');
+            throw new errors_js_1.ValidationError('Query must be a string');
         }
         if (query.length > 10000) {
-            throw new ValidationError('Query exceeds maximum length of 10000 characters');
+            throw new errors_js_1.ValidationError('Query exceeds maximum length of 10000 characters');
         }
         return this.requestWithRetry('POST', '/v1/ask', {
             query,
@@ -368,10 +371,10 @@ export class HypersaveClient {
      */
     async search(query, options) {
         if (!query) {
-            throw new ValidationError('Query is required');
+            throw new errors_js_1.ValidationError('Query is required');
         }
         if (typeof query !== 'string') {
-            throw new ValidationError('Query must be a string');
+            throw new errors_js_1.ValidationError('Query must be a string');
         }
         return this.requestWithRetry('POST', '/v1/search', {
             query,
@@ -394,10 +397,10 @@ export class HypersaveClient {
      */
     async query(message, options) {
         if (!message) {
-            throw new ValidationError('Message is required');
+            throw new errors_js_1.ValidationError('Message is required');
         }
         if (typeof message !== 'string') {
-            throw new ValidationError('Message must be a string');
+            throw new errors_js_1.ValidationError('Message must be a string');
         }
         return this.requestWithRetry('POST', '/v1/query', {
             message,
@@ -490,10 +493,10 @@ export class HypersaveClient {
      */
     async deleteMemory(id, options) {
         if (!id) {
-            throw new ValidationError('Memory ID is required');
+            throw new errors_js_1.ValidationError('Memory ID is required');
         }
         if (typeof id !== 'string') {
-            throw new ValidationError('Memory ID must be a string');
+            throw new errors_js_1.ValidationError('Memory ID must be a string');
         }
         return this.requestWithRetry('DELETE', `/v1/memories/${encodeURIComponent(id)}`, undefined, options);
     }
@@ -510,16 +513,16 @@ export class HypersaveClient {
      */
     async remind(options, requestOptions) {
         if (!options.content) {
-            throw new ValidationError('Reminder content is required');
+            throw new errors_js_1.ValidationError('Reminder content is required');
         }
         if (!options.trigger) {
-            throw new ValidationError('Reminder trigger is required');
+            throw new errors_js_1.ValidationError('Reminder trigger is required');
         }
         if (typeof options.content !== 'string') {
-            throw new ValidationError('Reminder content must be a string');
+            throw new errors_js_1.ValidationError('Reminder content must be a string');
         }
         if (typeof options.trigger !== 'string') {
-            throw new ValidationError('Reminder trigger must be a string');
+            throw new errors_js_1.ValidationError('Reminder trigger must be a string');
         }
         return this.requestWithRetry('POST', '/v1/remind', {
             content: options.content,
@@ -648,16 +651,16 @@ export class HypersaveClient {
      */
     async ingest(options, requestOptions) {
         if (!options.content) {
-            throw new ValidationError('Content is required');
+            throw new errors_js_1.ValidationError('Content is required');
         }
         if (!options.title) {
-            throw new ValidationError('Title is required');
+            throw new errors_js_1.ValidationError('Title is required');
         }
         if (typeof options.content !== 'string') {
-            throw new ValidationError('Content must be a string');
+            throw new errors_js_1.ValidationError('Content must be a string');
         }
         if (typeof options.title !== 'string') {
-            throw new ValidationError('Title must be a string');
+            throw new errors_js_1.ValidationError('Title must be a string');
         }
         return this.requestWithRetry('POST', '/v1/ingest', {
             content: options.content,
@@ -706,7 +709,7 @@ export class HypersaveClient {
     async triggerLearning(options) {
         const lookbackDays = options?.lookbackDays ?? 30;
         if (typeof lookbackDays !== 'number' || lookbackDays < 1 || lookbackDays > 365) {
-            throw new ValidationError('lookbackDays must be a number between 1 and 365');
+            throw new errors_js_1.ValidationError('lookbackDays must be a number between 1 and 365');
         }
         return this.requestWithRetry('POST', '/v1/synapses/learn', {
             lookbackDays,
@@ -726,7 +729,7 @@ export class HypersaveClient {
      */
     async forget(options, requestOptions) {
         if (!options.query) {
-            throw new ValidationError('Query is required');
+            throw new errors_js_1.ValidationError('Query is required');
         }
         return this.requestWithRetry('POST', '/v1/forget', {
             query: options.query,
@@ -882,7 +885,7 @@ export class HypersaveClient {
      */
     async analyze(options, requestOptions) {
         if (!options.input) {
-            throw new ValidationError('Input is required');
+            throw new errors_js_1.ValidationError('Input is required');
         }
         return this.requestWithRetry('POST', '/v1/analyze', {
             input: options.input,
@@ -905,7 +908,7 @@ export class HypersaveClient {
      */
     async fastSearch(options, requestOptions) {
         if (!options.query) {
-            throw new ValidationError('Query is required');
+            throw new errors_js_1.ValidationError('Query is required');
         }
         return this.requestWithRetry('POST', '/v1/fast/search', {
             query: options.query,
@@ -1004,7 +1007,7 @@ export class HypersaveClient {
      */
     async getDocument(id, requestOptions) {
         if (!id) {
-            throw new ValidationError('Document ID is required');
+            throw new errors_js_1.ValidationError('Document ID is required');
         }
         return this.requestWithRetry('GET', `/v1/documents/${encodeURIComponent(id)}`, undefined, requestOptions);
     }
@@ -1036,7 +1039,7 @@ export class HypersaveClient {
      */
     async deleteDocument(id, requestOptions) {
         if (!id) {
-            throw new ValidationError('Document ID is required');
+            throw new errors_js_1.ValidationError('Document ID is required');
         }
         return this.requestWithRetry('DELETE', `/v1/documents/${encodeURIComponent(id)}`, undefined, requestOptions);
     }
@@ -1054,7 +1057,7 @@ export class HypersaveClient {
      */
     async forgetMemory(id, options) {
         if (!id) {
-            throw new ValidationError('Memory ID is required');
+            throw new errors_js_1.ValidationError('Memory ID is required');
         }
         return this.requestWithRetry('DELETE', `/v1/memories/${encodeURIComponent(id)}`, {
             cascade: options?.cascade,
@@ -1072,7 +1075,7 @@ export class HypersaveClient {
      */
     async pinMemory(id, requestOptions) {
         if (!id) {
-            throw new ValidationError('Memory ID is required');
+            throw new errors_js_1.ValidationError('Memory ID is required');
         }
         return this.requestWithRetry('POST', `/v1/memories/${encodeURIComponent(id)}/pin`, {}, requestOptions);
     }
@@ -1087,7 +1090,7 @@ export class HypersaveClient {
      */
     async unpinMemory(id, requestOptions) {
         if (!id) {
-            throw new ValidationError('Memory ID is required');
+            throw new errors_js_1.ValidationError('Memory ID is required');
         }
         return this.requestWithRetry('POST', `/v1/memories/${encodeURIComponent(id)}/unpin`, {}, requestOptions);
     }
@@ -1102,7 +1105,7 @@ export class HypersaveClient {
      */
     async reinforceMemory(id, gain, requestOptions) {
         if (!id) {
-            throw new ValidationError('Memory ID is required');
+            throw new errors_js_1.ValidationError('Memory ID is required');
         }
         return this.requestWithRetry('POST', `/v1/memories/${encodeURIComponent(id)}/reinforce`, { gain }, requestOptions);
     }
@@ -1117,7 +1120,7 @@ export class HypersaveClient {
      */
     async penalizeMemory(id, amount, requestOptions) {
         if (!id) {
-            throw new ValidationError('Memory ID is required');
+            throw new errors_js_1.ValidationError('Memory ID is required');
         }
         return this.requestWithRetry('POST', `/v1/memories/${encodeURIComponent(id)}/penalize`, { amount }, requestOptions);
     }
@@ -1132,10 +1135,10 @@ export class HypersaveClient {
      */
     async scheduleForget(id, forgetAt, reason, requestOptions) {
         if (!id) {
-            throw new ValidationError('Memory ID is required');
+            throw new errors_js_1.ValidationError('Memory ID is required');
         }
         if (!forgetAt) {
-            throw new ValidationError('forgetAt is required');
+            throw new errors_js_1.ValidationError('forgetAt is required');
         }
         const forgetAtStr = forgetAt instanceof Date ? forgetAt.toISOString() : forgetAt;
         return this.requestWithRetry('POST', `/v1/memories/${encodeURIComponent(id)}/schedule-forget`, { forgetAt: forgetAtStr, reason }, requestOptions);
@@ -1176,10 +1179,10 @@ export class HypersaveClient {
      */
     async contestFact(id, reason, conflictingFactId, requestOptions) {
         if (!id) {
-            throw new ValidationError('Fact ID is required');
+            throw new errors_js_1.ValidationError('Fact ID is required');
         }
         if (!reason) {
-            throw new ValidationError('Reason is required');
+            throw new errors_js_1.ValidationError('Reason is required');
         }
         return this.requestWithRetry('POST', `/v1/facts/${encodeURIComponent(id)}/contest`, { reason, conflictingFactId }, requestOptions);
     }
@@ -1194,7 +1197,7 @@ export class HypersaveClient {
      */
     async resolveContest(id, requestOptions) {
         if (!id) {
-            throw new ValidationError('Fact ID is required');
+            throw new errors_js_1.ValidationError('Fact ID is required');
         }
         return this.requestWithRetry('POST', `/v1/facts/${encodeURIComponent(id)}/resolve-contest`, {}, requestOptions);
     }
@@ -1212,10 +1215,10 @@ export class HypersaveClient {
      */
     async createOrg(name, slug, requestOptions) {
         if (!name) {
-            throw new ValidationError('Organization name is required');
+            throw new errors_js_1.ValidationError('Organization name is required');
         }
         if (!slug) {
-            throw new ValidationError('Organization slug is required');
+            throw new errors_js_1.ValidationError('Organization slug is required');
         }
         return this.requestWithRetry('POST', '/v1/org', {
             name,
@@ -1247,7 +1250,7 @@ export class HypersaveClient {
      */
     async getOrg(orgId, requestOptions) {
         if (!orgId) {
-            throw new ValidationError('Organization ID is required');
+            throw new errors_js_1.ValidationError('Organization ID is required');
         }
         return this.requestWithRetry('GET', `/v1/org/${encodeURIComponent(orgId)}`, undefined, requestOptions);
     }
@@ -1262,13 +1265,13 @@ export class HypersaveClient {
      */
     async inviteMember(orgId, userId, role, requestOptions) {
         if (!orgId) {
-            throw new ValidationError('Organization ID is required');
+            throw new errors_js_1.ValidationError('Organization ID is required');
         }
         if (!userId) {
-            throw new ValidationError('User ID is required');
+            throw new errors_js_1.ValidationError('User ID is required');
         }
         if (!role) {
-            throw new ValidationError('Role is required');
+            throw new errors_js_1.ValidationError('Role is required');
         }
         return this.requestWithRetry('POST', `/v1/org/${encodeURIComponent(orgId)}/members`, { userId, role }, requestOptions);
     }
@@ -1282,10 +1285,10 @@ export class HypersaveClient {
      */
     async removeMember(orgId, memberId, requestOptions) {
         if (!orgId) {
-            throw new ValidationError('Organization ID is required');
+            throw new errors_js_1.ValidationError('Organization ID is required');
         }
         if (!memberId) {
-            throw new ValidationError('Member ID is required');
+            throw new errors_js_1.ValidationError('Member ID is required');
         }
         return this.requestWithRetry('DELETE', `/v1/org/${encodeURIComponent(orgId)}/members/${encodeURIComponent(memberId)}`, undefined, requestOptions);
     }
@@ -1304,10 +1307,10 @@ export class HypersaveClient {
      */
     async createWebhook(url, events, description, requestOptions) {
         if (!url) {
-            throw new ValidationError('Webhook URL is required');
+            throw new errors_js_1.ValidationError('Webhook URL is required');
         }
         if (!events || events.length === 0) {
-            throw new ValidationError('At least one event type is required');
+            throw new errors_js_1.ValidationError('At least one event type is required');
         }
         return this.requestWithRetry('POST', '/v1/webhooks', {
             url,
@@ -1339,7 +1342,7 @@ export class HypersaveClient {
      */
     async deleteWebhook(id, requestOptions) {
         if (!id) {
-            throw new ValidationError('Webhook ID is required');
+            throw new errors_js_1.ValidationError('Webhook ID is required');
         }
         return this.requestWithRetry('DELETE', `/v1/webhooks/${encodeURIComponent(id)}`, undefined, requestOptions);
     }
@@ -1354,7 +1357,7 @@ export class HypersaveClient {
      */
     async testWebhook(id, requestOptions) {
         if (!id) {
-            throw new ValidationError('Webhook ID is required');
+            throw new errors_js_1.ValidationError('Webhook ID is required');
         }
         return this.requestWithRetry('POST', `/v1/webhooks/${encodeURIComponent(id)}/test`, {}, requestOptions);
     }
@@ -1433,7 +1436,7 @@ export class HypersaveClient {
         const startTime = Date.now();
         while (Date.now() - startTime < maxWait) {
             if (options?.signal?.aborted) {
-                throw new TimeoutError(0, 'Polling was cancelled');
+                throw new errors_js_1.TimeoutError(0, 'Polling was cancelled');
             }
             const status = await this.getSaveStatus(pendingId, { signal: options?.signal });
             if (status.status === 'complete' || status.status === 'error') {
@@ -1441,7 +1444,7 @@ export class HypersaveClient {
             }
             await this.sleep(pollInterval, options?.signal);
         }
-        throw new TimeoutError(maxWait, `Save operation did not complete within ${maxWait}ms`);
+        throw new errors_js_1.TimeoutError(maxWait, `Save operation did not complete within ${maxWait}ms`);
     }
     /**
      * Batch save multiple pieces of content
@@ -1463,7 +1466,7 @@ export class HypersaveClient {
         // Process in batches
         for (let i = 0; i < items.length; i += concurrency) {
             if (options?.signal?.aborted) {
-                throw new TimeoutError(0, 'Batch save was cancelled');
+                throw new errors_js_1.TimeoutError(0, 'Batch save was cancelled');
             }
             const batch = items.slice(i, i + concurrency);
             const batchResults = await Promise.allSettled(batch.map(item => this.save(item, { signal: options?.signal })));
@@ -1486,5 +1489,6 @@ export class HypersaveClient {
         };
     }
 }
-export default HypersaveClient;
+exports.HypersaveClient = HypersaveClient;
+exports.default = HypersaveClient;
 //# sourceMappingURL=client.js.map
