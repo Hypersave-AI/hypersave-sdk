@@ -183,6 +183,9 @@ const result = await client.save({
   title: 'Interesting Article',
   category: 'Research',
 });
+// The SDK automatically reuses one Idempotency-Key across retry attempts.
+// Pass { idempotencyKey: 'meeting-q4-2026-v1' } as the second argument when
+// the same logical save may be retried by your application later.
 
 // Check status of async save
 if (result.pendingId) {
@@ -197,7 +200,8 @@ if (result.pendingId) {
 const result = await client.saveSync({
   content: 'Important note to remember',
 });
-console.log(`Saved! Extracted ${result.saved?.facts} facts`);
+console.log(`Saved ${result.documentId}; extracted ${result.facts?.length ?? 0} facts`);
+// result.saved remains available as a backward-compatible summary.
 ```
 
 #### `ask(query)` - Ask a question
@@ -285,6 +289,41 @@ const reminder = await client.remind({
 const usage = await client.getUsage();
 console.log(`${usage.usage.documentsIndexed} documents indexed`);
 ```
+
+### Company memory (1.5.0)
+
+#### Synced records - `externalId`
+
+Save records from a CRM, ticketing system or wiki under their source id. Saving the
+same `externalId` again makes a new version current and retires the previous one;
+deleting it at the source removes every version.
+
+```typescript
+await client.save({
+  content: 'Deal 42 — stage: negotiation, owner: Priya, value: $40k',
+  externalId: 'hubspot:deal:42',
+  sourceSystem: 'hubspot',
+  externalRevision: 7,
+});
+
+const history = await client.getExternalRecord('hubspot:deal:42');
+await client.deleteExternalRecord('hubspot:deal:42'); // permanent by default
+```
+
+#### Permitted compartments - `namespaces` and `onBehalfOf`
+
+Keep each compartment (a team, a CRM account, a wiki space) in its own namespace, then
+answer across the ones the asker may see. Only the listed namespaces are searched.
+
+```typescript
+const answer = await client.ask('Who owns the Acme renewal?', {
+  namespaces: ['crm-acme', 'wiki-sales'],
+  onBehalfOf: 'user:priya@acme.com', // recorded in the audit log
+});
+```
+
+API keys can be restricted with `scopes` (`memory:read`, `memory:write`,
+`account:admin`) and `allowedNamespaces` (e.g. `["crm-*"]`) when they are created.
 
 ## Error Handling
 

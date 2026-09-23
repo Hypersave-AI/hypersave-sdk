@@ -23,6 +23,8 @@ import {
   DeleteResult,
   FactsOptions,
   FactsResult,
+  UpdateFactOptions,
+  UpdateFactResult,
   RelationsOptions,
   RelationsResult,
   MetricsResult,
@@ -32,6 +34,9 @@ import {
   IngestResult,
   SynapsesResult,
   LearnResult,
+  LearningStatusResult,
+  TemporalOptions,
+  TemporalResult,
   RequestOptions,
   ForgetOptions,
   ForgetResult,
@@ -68,6 +73,8 @@ import {
   TestWebhookResult,
   AuditLogOptions,
   AuditLogResult,
+  ExternalRecord,
+  DeleteExternalRecordResult,
 } from './types.js';
 
 import {
@@ -118,6 +125,8 @@ export class HypersaveClient {
   private readonly baseUrl: string;
   private readonly timeout: number;
   private readonly defaultUserId?: string;
+  private readonly namespace?: string;
+  private readonly namespaceRegistrations = new Map<string, Promise<void>>();
   private readonly maxRetries: number;
   private readonly retryDelay: number;
 
@@ -137,13 +146,30 @@ export class HypersaveClient {
     this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
     this.timeout = config.timeout || DEFAULT_TIMEOUT;
     this.defaultUserId = config.userId;
+    this.namespace = config.namespace;
+    if (this.namespace !== undefined && !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/.test(this.namespace)) {
+      throw new ValidationError('Invalid memory namespace');
+    }
     this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.retryDelay = config.retryDelay ?? DEFAULT_RETRY_DELAY;
   }
 
-  /**
-   * Cancel all active requests
-   */
+  async listNamespaces(): Promise<{ success: boolean; namespaces: Array<{ namespace: string; state: string; createdAt: number }> }> {
+    return this.request('GET', '/v1/namespaces');
+  }
+
+  async createNamespace(namespace: string): Promise<{ success: boolean; namespace: string; isolation: string }> {
+    return this.request('POST', '/v1/namespaces', { namespace });
+  }
+
+  /** Permanently delete the named namespace. A deleted name cannot be reused. */
+  async deleteNamespace(namespace: string): Promise<{ success: boolean; namespace: string; state: string }> {
+    const result = await this.request<{ success: boolean; namespace: string; state: string }>('DELETE', `/v1/namespaces/${encodeURIComponent(namespace)}`, { confirm: 'DELETE_NAMESPACE' });
+    this.namespaceRegistrations.delete(namespace);
+    return result;
+  }
+
+  /** Cancel all active requests. */
   cancelAll(): void {
     for (const [requestId, controller] of this.activeRequests) {
       controller.abort();
@@ -214,15 +240,43 @@ export class HypersaveClient {
     return this.addJitter(baseDelay);
   }
 
+  /** Registers a namespace once per client; the server confirms isolation. */
+  private async ensureNamespace(namespace: string, options?: RequestOptions): Promise<void> {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}$/.test(namespace)) throw new ValidationError('Invalid memory namespace');
+    let registration = this.namespaceRegistrations.get(namespace);
+    if (!registration) {
+      registration = this.request<{ success: boolean; namespace: string; isolation: string }>('POST', '/v1/namespaces', { namespace }, { signal: options?.signal, timeout: options?.timeout }).then((result) => {
+        if (result.namespace !== namespace || result.isolation !== 'account-and-namespace') throw new ValidationError('Server did not confirm namespace isolation');
+      });
+      this.namespaceRegistrations.set(namespace, registration);
+    }
+    try { await registration; }
+    catch (error) { this.namespaceRegistrations.delete(namespace); throw error; }
+  }
+
   /**
    * Make an HTTP request to the API
    */
   private async request<T>(
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: Record<string, unknown>,
     options?: RequestOptions
   ): Promise<T> {
+    const namespaces = options?.namespaces;
+    const namespace = namespaces ? undefined : (options?.namespace ?? this.namespace);
+    const memoryRequest = /^\/v1\/(save|ask|search|facts|relations|entities|graph|profile|memories|memory|remind|query|ingest|forget|export|fast|brain|synapses|temporal|waypoints|documents|analyze|webhooks|audit)(\/|\?|$)/.test(path);
+    if (namespaces) {
+      if (method !== 'POST' || !/^\/v1\/(ask|search)\/?$/.test(path)) {
+        throw new ValidationError('namespaces applies to ask and search only');
+      }
+      if (namespaces.length === 0 || namespaces.length > 10) {
+        throw new ValidationError('Provide 1 to 10 namespaces');
+      }
+    }
+    for (const ns of namespaces ?? (namespace !== undefined && memoryRequest ? [namespace] : [])) {
+      await this.ensureNamespace(ns, options);
+    }
     const url = `${this.baseUrl}${path}`;
     const requestId = options?.requestId || this.generateRequestId();
     const requestTimeout = options?.timeout ?? this.timeout;
@@ -255,6 +309,12 @@ export class HypersaveClient {
       if (userId) {
         headers['x-user-id'] = userId;
       }
+      if (options?.idempotencyKey) {
+        headers['Idempotency-Key'] = options.idempotencyKey;
+      }
+      if (namespace !== undefined && memoryRequest) headers['X-Hypersave-Namespace'] = namespace;
+      if (namespaces) headers['X-Hypersave-Namespaces'] = namespaces.join(',');
+      if (options?.onBehalfOf) headers['X-Hypersave-On-Behalf-Of'] = options.onBehalfOf;
 
       const response = await fetch(url, {
         method,
@@ -282,6 +342,9 @@ export class HypersaveClient {
       if (!response.ok || data.success === false) {
         const errorMessage = data.error || data.message || 'Request failed';
         throw createErrorFromStatus(response.status, errorMessage, data.details);
+      }
+      if (namespace !== undefined && memoryRequest && response.headers.get('X-Hypersave-Namespace') !== namespace) {
+        throw new ValidationError('Server did not confirm the memory namespace');
       }
 
       return data as T;
@@ -346,7 +409,7 @@ export class HypersaveClient {
    * Make an HTTP request with retry logic for transient errors
    */
   private async requestWithRetry<T>(
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: Record<string, unknown>,
     options?: RequestOptions
@@ -421,17 +484,66 @@ export class HypersaveClient {
       throw new ValidationError('Content must be a string');
     }
 
-    return this.requestWithRetry<SaveResult>('POST', '/v1/save', {
+    const logicalRequestId = requestOptions?.requestId || this.generateRequestId();
+    const result = await this.requestWithRetry<SaveResult>('POST', '/v1/save', {
       content: options.content,
       title: options.title,
       type: options.type,
       category: options.category,
       async: options.async !== false, // Default to async
       userId: options.userId,
+      ...(options.externalId !== undefined ? { externalId: options.externalId } : {}),
+      ...(options.sourceSystem !== undefined ? { sourceSystem: options.sourceSystem } : {}),
+      ...(options.externalRevision !== undefined ? { externalRevision: options.externalRevision } : {}),
     }, {
       ...requestOptions,
+      requestId: logicalRequestId,
+      idempotencyKey: options.async !== false
+        ? (requestOptions?.idempotencyKey || `sdk:${logicalRequestId}`)
+        : undefined,
       userId: requestOptions?.userId ?? options.userId,
     });
+
+    // The REST API exposes canonical sync-save fields at the top level. Keep
+    // the historical `saved` view populated as a compatibility alias.
+    if (options.async === false && result.documentId && !result.saved) {
+      result.saved = {
+        id: result.documentId,
+        title: result.title ?? options.title ?? 'Untitled',
+        type: result.type ?? options.type ?? 'note',
+        facts: result.facts?.length ?? 0,
+        sector: result.sector ?? 'semantic',
+      };
+    }
+
+    return result;
+  }
+
+  /**
+   * Version history of a record saved with `externalId`.
+   *
+   * @example
+   * ```typescript
+   * const record = await client.getExternalRecord('hubspot:deal:42');
+   * console.log(record.data.currentDocId, record.data.versions.length);
+   * ```
+   */
+  async getExternalRecord(externalId: string, requestOptions?: RequestOptions): Promise<{ success: boolean; data: ExternalRecord }> {
+    if (!externalId || typeof externalId !== 'string') throw new ValidationError('externalId is required');
+    return this.requestWithRetry('GET', `/v1/memories/external/${encodeURIComponent(externalId)}`, undefined, requestOptions);
+  }
+
+  /**
+   * Honour a deletion at the source: removes every stored version of the
+   * record and what was derived from it. Permanent unless `hardDelete: false`.
+   */
+  async deleteExternalRecord(
+    externalId: string,
+    options?: RequestOptions & { hardDelete?: boolean },
+  ): Promise<DeleteExternalRecordResult> {
+    if (!externalId || typeof externalId !== 'string') throw new ValidationError('externalId is required');
+    return this.requestWithRetry('DELETE', `/v1/memories/external/${encodeURIComponent(externalId)}`,
+      options?.hardDelete === undefined ? undefined : { hardDelete: options.hardDelete }, options);
   }
 
   /**
@@ -756,6 +868,29 @@ export class HypersaveClient {
     return this.requestWithRetry<FactsResult>('GET', `/v1/facts${query ? `?${query}` : ''}`, undefined, options);
   }
 
+  /** Update a fact owned by the authenticated user. */
+  async updateFact(factId: string, update: UpdateFactOptions, requestOptions?: RequestOptions): Promise<UpdateFactResult> {
+    if (!factId || typeof factId !== 'string') {
+      throw new ValidationError('Fact ID is required');
+    }
+    if (!update || (update.value === undefined && update.confidence === undefined)) {
+      throw new ValidationError('value or confidence is required');
+    }
+    if (update.value !== undefined && (typeof update.value !== 'string' || update.value.trim().length === 0 || update.value.length > 20_000)) {
+      throw new ValidationError('value must contain 1 to 20000 characters');
+    }
+    if (update.confidence !== undefined && (typeof update.confidence !== 'number' || update.confidence < 0 || update.confidence > 1)) {
+      throw new ValidationError('confidence must be between 0 and 1');
+    }
+
+    return this.requestWithRetry<UpdateFactResult>(
+      'PATCH',
+      `/v1/facts/${encodeURIComponent(factId)}`,
+      { value: update.value, confidence: update.confidence },
+      requestOptions,
+    );
+  }
+
   /**
    * Get fact relations and knowledge triplets
    *
@@ -881,12 +1016,13 @@ export class HypersaveClient {
   }
 
   /**
-   * Trigger synapse learning from recent interactions
+   * Queue synapse learning from recent interactions
    *
    * @example
    * ```typescript
-   * const result = await client.triggerLearning({ lookbackDays: 30 });
-   * console.log(`New: ${result.newSynapses}, Updated: ${result.updatedSynapses}`);
+   * const queued = await client.triggerLearning({ lookbackDays: 30 });
+   * const completed = await client.waitForLearning(queued.jobId);
+   * console.log(completed.result);
    * ```
    */
   async triggerLearning(options?: { lookbackDays?: number } & RequestOptions): Promise<LearnResult> {
@@ -899,6 +1035,86 @@ export class HypersaveClient {
     return this.requestWithRetry<LearnResult>('POST', '/v1/synapses/learn', {
       lookbackDays,
     }, options);
+  }
+
+  /**
+   * Get the status of a queued synapse-learning job.
+   */
+  async getLearningStatus(jobId: string, requestOptions?: RequestOptions): Promise<LearningStatusResult> {
+    if (!jobId) {
+      throw new ValidationError('Learning job ID is required');
+    }
+    if (typeof jobId !== 'string') {
+      throw new ValidationError('Learning job ID must be a string');
+    }
+
+    return this.requestWithRetry<LearningStatusResult>(
+      'GET',
+      `/v1/synapses/learn/${encodeURIComponent(jobId)}`,
+      undefined,
+      requestOptions,
+    );
+  }
+
+  /**
+   * Poll a queued synapse-learning job until it completes or fails.
+   */
+  async waitForLearning(
+    jobId: string,
+    options?: {
+      /** Polling interval in ms (default: 2000) */
+      pollInterval?: number;
+      /** Maximum wait time in ms (default: 300000) */
+      maxWait?: number;
+      /** AbortSignal for cancellation */
+      signal?: AbortSignal;
+    },
+  ): Promise<LearningStatusResult> {
+    const pollInterval = options?.pollInterval ?? 2000;
+    const maxWait = options?.maxWait ?? 300000;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWait) {
+      if (options?.signal?.aborted) {
+        throw new TimeoutError(0, 'Learning status polling was cancelled');
+      }
+
+      const status = await this.getLearningStatus(jobId, { signal: options?.signal });
+      if (status.status === 'completed' || status.status === 'failed') {
+        return status;
+      }
+
+      await this.sleep(pollInterval, options?.signal);
+    }
+
+    throw new TimeoutError(maxWait, `Synapse learning did not complete within ${maxWait}ms`);
+  }
+
+  /** Run tenant-scoped temporal search, timeline, trend, or first-seen analysis. */
+  async temporal(options: TemporalOptions, requestOptions?: RequestOptions): Promise<TemporalResult> {
+    if (!options || !['search', 'timeline', 'trends', 'first_seen'].includes(options.action)) {
+      throw new ValidationError('action must be search, timeline, trends, or first_seen');
+    }
+    if (options.action === 'search' && !options.query?.trim()) {
+      throw new ValidationError('query is required for temporal search');
+    }
+    if (options.action === 'first_seen' && !options.topic?.trim() && !options.query?.trim()) {
+      throw new ValidationError('topic or query is required for first_seen');
+    }
+    if (options.days !== undefined && (!Number.isInteger(options.days) || options.days < 1 || options.days > 365)) {
+      throw new ValidationError('days must be an integer between 1 and 365');
+    }
+    if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 1000)) {
+      throw new ValidationError('limit must be an integer between 1 and 1000');
+    }
+
+    return this.requestWithRetry<TemporalResult>('POST', '/v1/temporal', {
+      action: options.action,
+      query: options.query,
+      topic: options.topic,
+      days: options.days,
+      limit: options.limit,
+    }, requestOptions);
   }
 
   // ============================================================================

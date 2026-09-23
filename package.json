@@ -1,6 +1,6 @@
 {
   "name": "hypersave",
-  "version": "1.4.6",
+  "version": "1.5.0",
   "description": "Official TypeScript/JavaScript SDK for the Hypersave API - Your AI-powered memory layer",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -8,9 +8,9 @@
   "type": "module",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.cjs"
     }
   },
   "files": [
@@ -20,10 +20,10 @@
   ],
   "scripts": {
     "build": "tsc",
-    "build:cjs": "tsc --module commonjs --outDir dist/cjs && cp dist/cjs/index.js dist/index.cjs",
+    "build:cjs": "esbuild src/index.ts --bundle --platform=node --format=cjs --target=node18 --outfile=dist/index.cjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build && npm run build:cjs",
-    "test": "npx tsx src/client.test.ts",
+    "test": "tsx src/client.test.ts",
     "test:watch": "npx tsx --watch src/client.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -55,8 +55,9 @@
     "node": ">=18.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0"
-  },
-  "peerDependencies": {},
-  "dependencies": {}
+    "@types/node": "^26.4.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
 }
