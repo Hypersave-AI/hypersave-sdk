@@ -50,6 +50,8 @@ export interface HypersaveConfig {
   timeout?: number;
   /** Default user ID for requests (optional) */
   userId?: string;
+  /** Isolated memory namespace within your account (for an app user or workspace). */
+  namespace?: string;
   /** Maximum number of retry attempts for transient errors (default: 3) */
   maxRetries?: number;
   /** Base delay in milliseconds for exponential backoff (default: 1000) */
@@ -64,6 +66,15 @@ export interface HypersaveConfig {
  * Options that can be passed to individual API requests
  */
 export interface RequestOptions {
+  /** Override the client's memory namespace for this request. */
+  namespace?: string;
+  /**
+   * Read across several namespaces in one request (ask and search only, max 10).
+   * Each namespace is searched on its own; nothing outside the list is read.
+   */
+  namespaces?: string[];
+  /** Identity of the end user this request is answered for, recorded in the audit log. */
+  onBehalfOf?: string;
   /** User ID for this specific request */
   userId?: string;
   /** AbortSignal for request cancellation */
@@ -72,6 +83,8 @@ export interface RequestOptions {
   timeout?: number;
   /** Request ID for debugging/tracing */
   requestId?: string;
+  /** Stable key used to make retryable save requests idempotent */
+  idempotencyKey?: string;
 }
 
 // ============================================================================
@@ -91,6 +104,45 @@ export interface SaveOptions {
   async?: boolean;
   /** User ID (overrides config default) */
   userId?: string;
+  /**
+   * Stable id of this record in its source system (CRM deal, ticket, page).
+   * Saving the same externalId again creates a new version and retires the
+   * previous one. Requires an async save.
+   */
+  externalId?: string;
+  /** Source system name, e.g. "hubspot" or "zendesk". Requires externalId. */
+  sourceSystem?: string;
+  /** Source revision; a new revision with identical content is still a new version. */
+  externalRevision?: string | number;
+}
+
+/** Version history of a source-identified record. */
+export interface ExternalRecord {
+  externalId: string;
+  sourceSystem: string | null;
+  currentDocId: string | null;
+  deletedAt: number | null;
+  versions: Array<{ docId: string; sequence: number; supersededAt: number | null }>;
+  updatedAt: number;
+}
+
+export interface DeleteExternalRecordResult {
+  success: boolean;
+  externalId: string;
+  hardDelete: boolean;
+  existed: boolean;
+  versions: number;
+  removed: number;
+  failed: number;
+}
+
+/** A fact extracted from the document handled by a synchronous save. */
+export interface SaveExtractedFact {
+  id?: string;
+  category: string;
+  key: string;
+  value: string;
+  confidence: number;
 }
 
 export interface SaveResult {
@@ -99,10 +151,24 @@ export interface SaveResult {
   async?: boolean;
   /** Pending ID for async saves (use getSaveStatus to check) */
   pendingId?: string;
+  /** True when the API returned an existing logical save */
+  replayed?: boolean;
   /** Message for async saves */
   message?: string;
   /** URL to check status (for async saves) */
   checkStatus?: string;
+  /** Canonical synchronous-save document ID returned by the REST API */
+  documentId?: string;
+  /** Canonical synchronous-save title returned by the REST API */
+  title?: string;
+  /** Canonical synchronous-save document type returned by the REST API */
+  type?: string;
+  /** Request-scoped facts extracted by a synchronous save */
+  facts?: SaveExtractedFact[];
+  /** Cognitive sector selected for a synchronous save */
+  sector?: string;
+  /** Sensitivity applied to a synchronous save */
+  sensitivity?: string;
   /** Saved document details (for sync saves) */
   saved?: {
     id: string;
@@ -492,6 +558,20 @@ export interface FactsResult {
   error?: string;
 }
 
+export interface UpdateFactOptions {
+  /** New fact value */
+  value?: string;
+  /** Updated confidence score (0-1) */
+  confidence?: number;
+}
+
+export interface UpdateFactResult {
+  success: boolean;
+  factId: string;
+  action: string;
+  error?: string;
+}
+
 // ============================================================================
 // RELATIONS TYPES
 // ============================================================================
@@ -688,15 +768,71 @@ export interface SynapsesResult {
 
 export interface LearnResult {
   success: boolean;
+  /** Queue state returned by the asynchronous learning endpoint */
+  status: 'queued';
+  /** True when the worker job was accepted */
+  queued: true;
+  /** Job ID used with getLearningStatus()/waitForLearning() */
+  jobId: string;
+  /** Suggested polling delay */
+  retryAfterSeconds?: number;
   /** Message about the learning process */
   message: string;
-  /** Number of new synapses created */
-  newSynapses: number;
-  /** Number of existing synapses updated */
-  updatedSynapses: number;
-  /** Total synapses after learning */
-  totalSynapses: number;
+  /** Legacy synchronous response field */
+  newSynapses?: number;
+  /** Legacy synchronous response field */
+  updatedSynapses?: number;
+  /** Legacy synchronous response field */
+  totalSynapses?: number;
   /** Error message if failed */
+  error?: string;
+}
+
+export type LearningJobStatus =
+  | 'waiting'
+  | 'active'
+  | 'delayed'
+  | 'prioritized'
+  | 'waiting-children'
+  | 'completed'
+  | 'failed'
+  | 'unknown';
+
+export interface LearningStatusResult {
+  success: boolean;
+  jobId: string;
+  status: LearningJobStatus;
+  progress?: number | Record<string, unknown>;
+  result: {
+    success: boolean;
+    discovered: number;
+    reinforced: number;
+    decayed: number;
+    completedAt: string;
+  } | null;
+  retryAfterSeconds?: number;
+  error?: string;
+}
+
+export type TemporalAction = 'search' | 'timeline' | 'trends' | 'first_seen';
+
+export interface TemporalOptions {
+  action: TemporalAction;
+  query?: string;
+  topic?: string;
+  days?: number;
+  limit?: number;
+}
+
+export interface TemporalResult {
+  success: boolean;
+  action: TemporalAction;
+  documents?: Array<Record<string, unknown>>;
+  timeline?: Array<Record<string, unknown>>;
+  trends?: Array<Record<string, unknown>>;
+  firstSeen?: Record<string, unknown> | null;
+  topic?: string;
+  days?: number;
   error?: string;
 }
 

@@ -22,6 +22,9 @@ export type {
 
   // Save
   SaveOptions,
+  ExternalRecord,
+  DeleteExternalRecordResult,
+  SaveExtractedFact,
   SaveResult,
   SaveStatus,
 
@@ -65,6 +68,8 @@ export type {
   FactCategory,
   FactsOptions,
   FactsResult,
+  UpdateFactOptions,
+  UpdateFactResult,
 
   // Relations
   RelationType,
@@ -91,6 +96,11 @@ export type {
   Synapse,
   SynapsesResult,
   LearnResult,
+  LearningJobStatus,
+  LearningStatusResult,
+  TemporalAction,
+  TemporalOptions,
+  TemporalResult,
 
   // Forget (GDPR)
   ForgetOptions,
