@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Shipped in the npm package only; the repo carries no .md files.
+README.md

@@ -45,11 +45,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hypersave/hypersave-sdk"
+    "url": "https://github.com/Hypersave-AI/hypersave-sdk"
   },
   "homepage": "https://docs.hypersave.io",
   "bugs": {
-    "url": "https://github.com/hypersave/hypersave-sdk/issues"
+    "url": "https://github.com/Hypersave-AI/hypersave-sdk/issues"
   },
   "engines": {
     "node": ">=18.0.0"
