@@ -50,28 +50,43 @@ export const TOOLS: Tool[] = [
   {
     name: 'hypersave_update',
     description: 'Correct the value of a stored fact.',
-    inputSchema: { type: 'object', properties: { factId: str('Fact id from hypersave_facts'), value: str('The corrected value') }, required: ['factId', 'value'] },
-    run: (c, a) => c.updateFact(text(a, 'factId'), { value: text(a, 'value') }),
+    inputSchema: {
+      type: 'object',
+      properties: { factId: str('Fact id from hypersave_facts'), newValue: str('The corrected value'), confidence: num('Optional confidence 0-1') },
+      required: ['factId', 'newValue'],
+    },
+    run: (c, a) => c.updateFact(text(a, 'factId'), {
+      value: text(a, a.newValue === undefined && a.value !== undefined ? 'value' : 'newValue'),
+      confidence: opt(a, 'confidence'),
+    }),
   },
   {
     name: 'hypersave_profile',
     description: 'Get the user\'s assembled profile: who they are, what they work on, what they prefer.',
-    inputSchema: { type: 'object', properties: {} },
-    run: (c) => c.getProfile(),
+    inputSchema: { type: 'object', properties: { section: str('Optional section: identity, work, health, preference, ...') } },
+    run: (c, a) => c.getProfile({ section: opt(a, 'section') }),
   },
   {
     name: 'hypersave_remind',
-    description: 'Create a reminder that surfaces at a time or when a topic comes up.',
+    description: 'Create a reminder (surfaced at a time or when a topic comes up), or list/check reminders.',
     inputSchema: {
       type: 'object',
       properties: {
-        content: str('What to be reminded of'),
-        trigger: str('When: a time ("tomorrow 9am") or a topic ("when I mention the launch")'),
-        triggerType: { type: 'string', enum: ['time', 'context', 'location'], description: 'Kind of trigger (default time)' },
+        action: { type: 'string', enum: ['create', 'check', 'list'], description: 'Default create' },
+        reminderContent: str('What to be reminded of (create)'),
+        keywords: str('Comma-separated topics that trigger the reminder (create), e.g. "project,deadline"'),
+        trigger: str('Alternatively a time, e.g. "tomorrow 9am" (create)'),
       },
-      required: ['content', 'trigger'],
     },
-    run: (c, a) => c.remind({ content: text(a, 'content'), trigger: text(a, 'trigger'), triggerType: opt(a, 'triggerType') }),
+    run: (c, a) => {
+      const action = (opt<string>(a, 'action') ?? 'create').toLowerCase();
+      if (action === 'list') return c.getReminders();
+      if (action === 'check') return c.getReminders({ includeTriggered: true });
+      const content = text(a, a.reminderContent === undefined && a.content !== undefined ? 'content' : 'reminderContent');
+      const keywords = opt<string>(a, 'keywords');
+      if (keywords) return c.remind({ content, trigger: keywords, triggerType: 'context' });
+      return c.remind({ content, trigger: text(a, 'trigger'), triggerType: 'time' });
+    },
   },
   {
     name: 'hypersave_temporal',
@@ -102,8 +117,8 @@ export const TOOLS: Tool[] = [
   {
     name: 'hypersave_graph',
     description: 'Get the knowledge graph of people, places, projects and how they relate.',
-    inputSchema: { type: 'object', properties: {} },
-    run: (c) => c.getGraph(),
+    inputSchema: { type: 'object', properties: { entity: str('Optional entity to centre on'), depth: num('Hops from the entity (default 1)') } },
+    run: (c, a) => c.getGraph({ entity: opt(a, 'entity'), depth: opt(a, 'depth') }),
   },
   {
     name: 'hypersave_learn',
