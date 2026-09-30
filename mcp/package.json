@@ -1,0 +1,49 @@
+{
+  "name": "hypersave-mcp",
+  "version": "1.0.0",
+  "description": "Hypersave memory for Claude, Cursor, ChatGPT and any MCP client. Needs only an API key.",
+  "type": "module",
+  "bin": {
+    "hypersave-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "hypersave",
+    "claude",
+    "cursor",
+    "ai"
+  ],
+  "author": "Hypersave",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hypersave-AI/hypersave-sdk",
+    "directory": "mcp"
+  },
+  "homepage": "https://docs.hypersave.io/api-reference/mcp",
+  "bugs": {
+    "url": "https://github.com/Hypersave-AI/hypersave-sdk/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "hypersave": "^1.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
